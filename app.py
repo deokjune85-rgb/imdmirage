@@ -1946,7 +1946,7 @@ SYSTEM_INSTRUCTION = """
 # 모델 초기화
 if "model" not in st.session_state:
     # 데모에서는 속도가 빠른 Flash 모델을 사용한다. 필요시 Pro로 변경.
-    st.session_state.model = genai.GenerativeModel('gemini-1.0-pro-latest',
+    st.session_state.model = genai.GenerativeModel('gemini-1.5-flash-latest',
                                                    system_instruction=SYSTEM_INSTRUCTION)
 
 # --- 4. 대화 세션 관리 및 자동 시작 ---
