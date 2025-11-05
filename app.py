@@ -4,7 +4,7 @@ import os
 
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
 # 페이지 타이틀과 레이아웃 설정
-st.set_page_config(page_title="IMD ARCHITECT 7.0", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="아이엠디 아키텍처 버전 7.0", page_icon="🛡️", layout="centered")
 
 # CSS 해킹: Streamlit 기본 로고, 메뉴, 헤더, 푸터를 완벽하게 숨긴다. (신기루 프로토콜)
 hide_streamlit_style = """
