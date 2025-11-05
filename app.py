@@ -19,7 +19,7 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- 2. 타이틀 및 경고 (황제의 교리) ---
-st.title("ARCHITECT 7.0 [Simulation Engine]")
+st.title("아이엠디 아키텍처 버전 7.0")
 # st.error를 사용하여 강력한 시각적 경고 표시
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
