@@ -1,29 +1,3 @@
-# --- [디버그 모드] 환경 점검 블록 ---
-import streamlit as st
-import importlib.metadata
-import google.generativeai as genai
-
-st.write("### 🔍 환경 점검 리포트")
-
-# google-generativeai 버전 출력
-try:
-    version = importlib.metadata.version("google-generativeai")
-except Exception:
-    version = "버전 조회 실패"
-st.code(f"google-generativeai version: {version}", language="bash")
-
-# API Key 및 모델 리스트 조회
-try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=API_KEY)
-    models = genai.list_models()
-    st.write("### ✅ 사용 가능한 모델 목록 (ListModels)")
-    for m in models:
-        st.write(f"- {m.name} | supported_methods: {m.supported_generation_methods}")
-except Exception as e:
-    st.error(f"모델 리스트 조회 실패: {e}")
-
-
 import streamlit as st
 import google.generativeai as genai
 
