@@ -23,20 +23,21 @@ st.title("아이엠디 아키텍처 버전 7.0")
 # st.error를 사용하여 강력한 시각적 경고 표시
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
-# --- 3. API 키 및 모델 설정 (The Engine & EPE/KB) ---
-# Streamlit Secrets를 사용하여 API 키를 안전하게 로드한다. (코드에 직접 키를 넣지 않음)
+# --- 3. API 키 및 모델 설정 ---
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
-    # API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
     st.error("시스템 오류: 엔진 연결 실패. (API Key 누락)")
     st.stop()
 
 genai.configure(api_key=API_KEY)
 
-# ← 여기 고침!
+# ← 외부 파일 로드 (안전 + 안정)
+with open("system_prompt.txt", "r", encoding="utf-8") as f:
+    SYSTEM_INSTRUCTION = f.read()
+
 st.session_state.model = genai.GenerativeModel(
-    'models/gemini-1.5-flash-latest',  # ← models/ 강제
+    'models/gemini-1.5-flash-latest',
     system_instruction=SYSTEM_INSTRUCTION
 )
 # 모델 설정: '프라임 게놈'의 핵심 교리를 system_instruction에 주입한다.
