@@ -33,7 +33,7 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 
 if "model" not in st.session_state:
     st.session_state.model = genai.GenerativeModel(
-        'gemini-2.5-flash-latest',
+        "gemini-2.5-flash",
         system_instruction=SYSTEM_INSTRUCTION
     )
 
