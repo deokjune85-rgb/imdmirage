@@ -26,7 +26,9 @@ st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에�
 # --- 3. API 키 및 모델 설정 (The Engine & EPE/KB) ---
 # Streamlit Secrets를 사용하여 API 키를 안전하게 로드한다. (코드에 직접 키를 넣지 않음)
 try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
+    # [긴급 디버깅]: 키를 코드에 직접 주입한다. (테스트 후 반드시 삭제할 것!)
+    API_KEY = "AIzaSyBENwcQkjKUvto2gSWqrnaQVQytsafYhyQ"
+    # API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
     st.error("시스템 오류: 엔진 연결 실패. (API Key 누락)")
     st.stop()
