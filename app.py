@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
-st.set_page_config(page_title="아이엠디 아키텍처 버전 7.0", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
 
 hide_streamlit_style = """
 <style>
@@ -15,7 +15,7 @@ header {visibility: hidden;}
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- 2. 타이틀 및 경고 ---
-st.title("아이엠디 아키텍처 버전 7.0")
+st.title("베리타스 엔진 버전 7.0")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # --- 3. API 키 및 모델 설정 ---
