@@ -174,33 +174,35 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
             # ✅ 스트림 완료 후 저장
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 트리거 고정
-t_compact = (full_response or "").replace(" ", "").lower()
+            # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 통합 트리거 (함수/내부 try 없이)
+            t_compact = (full_response or "").replace(" ", "").lower()
+            is_final = (
+                (
+                    ("브리핑보고서" in t_compact) or
+                    ("최종보고서" in t_compact) or
+                    ("최종결론" in t_compact) or
+                    ("최종판단" in t_compact) or
+                    ("요약보고서" in t_compact) or
+                    ("[극비]" in t_compact) or
+                    ("유사수신/사기전략브리핑보고서" in t_compact) or
+                    ("면책조항" in t_compact)
+                )
+                and (
+                    ("## 1. 사건 개요" in full_response) or
+                    ("## 1." in full_response) or
+                    ("사건 개요" in full_response)
+                )
+            )
 
-is_final = (
-    (
-        ("브리핑보고서" in t_compact) or
-        ("최종보고서" in t_compact) or
-        ("최종결론" in t_compact) or
-        ("최종판단" in t_compact) or
-        ("요약보고서" in t_compact) or
-        ("[극비]" in t_compact) or
-        ("유사수신/사기전략브리핑보고서" in t_compact) or
-        ("면책조항" in t_compact)
-    )
-    and (
-        ("## 1. 사건 개요" in full_response) or
-        ("## 1." in full_response) or
-        ("사건 개요" in full_response)
-    )
-)
+            if is_final:
+                precedents, embeddings = load_and_embed_precedents()
+                similar_cases = find_similar_precedents(prompt, precedents, embeddings)
+                if similar_cases:
+                    st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
+                    for case in similar_cases:
+                        st.markdown(f"<div class='fadein'>{case}</div>", unsafe_allow_html=True)
 
-if is_final:
-    precedents, embeddings = load_and_embed_precedents()
-    similar_cases = find_similar_precedents(prompt, precedents, embeddings)
-    if similar_cases:
-        st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
-        for case in similar_cases:
-            st.markdown(f"<div class='fadein'>{case}</div>", unsafe_allow_html=True)
-
-
+        except Exception as e:
+            err = f"시뮬레이션 오류 발생: {e}"
+            st.error(err)
+            st.session_state.messages.append({"role": "Architect", "content": err})
