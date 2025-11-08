@@ -1,134 +1,235 @@
-# ======================================================
-# 🛡️ 베리타스 엔진 v10.0 — Phase Protocol Reinforced Build
-# ======================================================
 import streamlit as st
-import time
+import google.generativeai as genai
+import os
+import numpy as np # RAG 엔진을 위한 벡터 연산 라이브러리
 
-# ======================================================
-# 1. SYSTEM INIT
-# ======================================================
-st.set_page_config(page_title="베리타스 엔진 10.0", page_icon="🛡️", layout="centered")
 
-# CSS 통일
-st.markdown("""
-<style>
-#MainMenu, footer, header, .stDeployButton {visibility:hidden;}
-html, body, div, span, p {
-    font-family: 'Noto Sans KR', sans-serif !important;
-    color: #FFFFFF !important;
-    font-size: 17px !important;
-    line-height: 1.7 !important;
-}
-h1 {
-    text-align: left !important;
-    font-weight: 900 !important;
-    font-size: 34px !important;
-    margin-top: 10px !important;
-    margin-bottom: 15px !important;
-    color: #FFFFFF !important;
-}
-.lineblock {
-    white-space: pre-wrap;
-    margin-bottom: 5px;
-    opacity: 0;
-    animation: fadeIn 0.5s forwards ease-in-out;
-}
-@keyframes fadeIn {
-    from {opacity: 0;}
-    to {opacity: 1;}
-}
-</style>
-""", unsafe_allow_html=True)
 
-# 자동 스크롤
-st.markdown("""
-<script>
-const scrollToBottom = () => {
-  var chat = window.parent.document.querySelector('[data-testid="stVerticalBlock"]');
-  if (chat) chat.scrollTo(0, chat.scrollHeight);
-};
-setInterval(scrollToBottom, 300);
-</script>
-""", unsafe_allow_html=True)
+# --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
+st.set_page_config(page_title="베리타스 엔진 7.0", page_icon="🛡️", layout="centered")
 
-# ======================================================
-# 2. UI TITLE
-# ======================================================
-st.title("베리타스 엔진 버전 10.0")
+# CSS 해킹 (신기루 프로토콜)
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            .stDeployButton {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+
+
+# --- 2. 타이틀 및 경고 ---
+
+st.title("베리타스 엔진 버전 7.0")
+
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
-# ======================================================
-# 3. PHASE CONTROL
-# ======================================================
-if "phase" not in st.session_state:
-    st.session_state.phase = "0"
 
-def show_phase_0():
-    st.markdown("""
-**시스템 초기화: 시뮬레이션 도메인 선택.**
 
-분석을 진행할 사건의 법률/재무/의료 분야를 선택하십시오.
+# --- 3. API 키 및 모델 설정 ---
 
-1. 이혼 및 가사법 (Divorce/Family Law)  
-2. 형사 변호 (Criminal Defense)  
-3. 파산 및 회생 (Bankruptcy/Insolvency)  
-4. 지적 재산권 (IP/Patent)  
-5. 의료 소송 (Medical Malpractice)  
-6. 세무 및 회계 (Tax/Accounting)  
-7. 행정 소송 (Administrative Law)
 
-번호 또는 원하시는 분야를 입력하십시오.
-""")
 
-def show_phase_05():
-    st.markdown("""
-**Phase 0.5: 형사 세부 분야 선택.**
+try:
 
-2-1. 마약 (투약/소지/매매/알선)  
-2-2. 성범죄 및 스토킹  
-2-3. 음주운전  
-2-4. 도박 (사이버/오프라인)  
-2-5. 금융/경제 범죄 (자본시장법, 사기/횡령/배임, 특금법)  
-2-6. 명예훼손 및 정보통신망법 위반  
-2-7. 유사수신  
-2-8. 기타 일반 형사 (폭행 등)
-""")
+    API_KEY = st.secrets["GOOGLE_API_KEY"]
 
-def show_phase_1():
-    st.markdown("""
-**Phase 1: 핵심 변수 입력.**
+except KeyError:
 
-1/6. 현재 문제가 된 '혐의 내용'은 무엇입니까?  
-(예: 유사수신행위법 위반 및 특경법 사기)
-""")
+    st.error("시스템 오류: 엔진 연결 실패. (API Key 누락)")
 
-# ======================================================
-# 4. PHASE FLOW
-# ======================================================
-if st.session_state.phase == "0":
-    show_phase_0()
+    st.stop()
 
-elif st.session_state.phase == "0.5":
-    show_phase_05()
 
-elif st.session_state.phase == "1":
-    show_phase_1()
 
-# ======================================================
-# 5. USER INPUT (STRICT CONTROL)
-# ======================================================
-if user_input := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    if st.session_state.phase == "0":
-        if user_input.strip() == "2":
-            st.session_state.phase = "0.5"
-            st.rerun()
-        else:
-            st.warning("올바른 도메인 번호를 입력하십시오. (예: 2)")
-    elif st.session_state.phase == "0.5":
-        st.session_state.phase = "1"
-        st.rerun()
-    elif st.session_state.phase == "1":
-        st.success("Phase 1 입력 완료. 다음 단계로 진행 중...")
-        time.sleep(1)
-        st.session_state.phase = "2"
-        st.rerun()
+genai.configure(api_key=API_KEY)
+
+
+# --- [작전명: 트로이 목마] 게릴라 RAG 엔진 함수 정의 ---
+EMBEDDING_MODEL_NAME = "models/text-embedding-004" # 구글 임베딩 모델
+
+# 텍스트 임베딩 함수
+def embed_text(text, task_type="retrieval_document"):
+    try:
+        # 텍스트 정제 (줄바꿈 제거 등)
+        clean_text = text.replace('\n', ' ').strip()
+        if not clean_text:
+            return None
+            
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            content=clean_text,
+            task_type=task_type)
+        return result['embedding']
+    except Exception as e:
+        print(f"Embedding error: {e}") # 콘솔 로그 기록
+        return None
+
+# 판례 데이터 로드 및 임베딩 함수 (st.cache_data로 캐싱하여 성능 최적화)
+@st.cache_data
+def load_and_embed_precedents(file_path='precedents_data.txt'):
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}") # 콘솔 로그 기록
+        return [], []
+    
+    # 파일 읽기 및 판례 분할
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Error reading file: {e}") # 콘솔 로그 기록
+        return [], []
+    
+    precedents = content.split('---END OF PRECEDENT---')
+    precedents = [p.strip() for p in precedents if p.strip()]
+    
+    # 각 판례 임베딩 (시간 소요)
+    embeddings = []
+    valid_precedents = []
+    for precedent in precedents:
+        embedding = embed_text(precedent)
+        if embedding:
+            embeddings.append(embedding)
+            valid_precedents.append(precedent)
+    
+    print(f"Successfully loaded and embedded {len(valid_precedents)} precedents.") # 콘솔 로그 기록
+    return valid_precedents, embeddings
+
+# 유사 판례 검색 함수 (코사인 유사도)
+def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
+    if not embeddings or not precedents:
+        return []
+
+    # 쿼리 임베딩
+    query_embedding = embed_text(query_text, task_type="search_query")
+    if query_embedding is None:
+        return []
+    
+    # 코사인 유사도 계산 (NumPy 사용)
+    # Google의 text-embedding-004는 정규화된 벡터를 반환하므로 내적(Dot product)이 코사인 유사도임.
+    embeddings_np = np.array(embeddings)
+    query_embedding_np = np.array(query_embedding)
+    
+    similarities = np.dot(embeddings_np, query_embedding_np)
+    
+    # 상위 K개 인덱스 찾기
+    top_k_indices = np.argsort(similarities)[::-1][:top_k]
+    
+    # 결과 반환 (보고서 삽입용)
+    results = []
+    for idx in top_k_indices:
+        # 유사도가 너무 낮으면 제외 (임계값 0.6 설정)
+        if similarities[idx] > 0.6: 
+            results.append(f"[유사 판례 발견 (유사도: {similarities[idx]:.2f})]\n{precedents[idx]}\n---\n")
+    
+    return results
+# ------------------------------------------------------------
+
+
+
+# 외부 파일 로드 (system_prompt.txt에 프라임 게놈 전체 저장)
+
+with open("system_prompt.txt", "r", encoding="utf-8") as f:
+
+    SYSTEM_INSTRUCTION = f.read()
+
+
+
+if "model" not in st.session_state:
+
+    st.session_state.model = genai.GenerativeModel(
+
+        "gemini-2.5-flash",
+
+        system_instruction=SYSTEM_INSTRUCTION
+
+    )
+
+
+
+# --- 4. 대화 세션 관리 및 자동 시작 ---
+
+if "messages" not in st.session_state:
+
+    st.session_state.messages = []
+
+
+
+if "chat" not in st.session_state:
+
+    st.session_state.chat = st.session_state.model.start_chat(history=[])
+
+    
+
+    initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
+
+    try:
+
+        response = st.session_state.chat.send_message(initial_prompt)
+
+        st.session_state.messages.append({"role": "Architect", "content": response.text})
+
+    except Exception as e:
+
+        st.error(f"시스템 초기화 실패: {e}")
+
+
+
+# 이전 대화 기록 표시
+
+for message in st.session_state.messages:
+
+    role_name = "Client" if message["role"] == "user" else "Architect"
+
+    avatar = "👤" if message["role"] == "user" else "🛡️"
+
+    with st.chat_message(role_name, avatar=avatar):
+
+        st.markdown(message["content"])
+
+
+
+# --- 5. 사용자 입력 및 응답 생성 ---
+
+if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
+
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("Client", avatar="👤"):
+
+        st.markdown(prompt)
+
+
+
+    with st.spinner("Architect 시스템 연산 중..."):
+
+        try:
+
+            response_stream = st.session_state.chat.send_message(prompt, stream=True)
+
+            with st.chat_message("Architect", avatar="🛡️"):
+
+                response_placeholder = st.empty()
+
+                full_response = ""
+
+                for chunk in response_stream:
+
+                    full_response += chunk.text
+
+                    response_placeholder.markdown(full_response + "▌")
+
+                response_placeholder.markdown(full_response)
+
+            st.session_state.messages.append({"role": "Architect", "content": full_response})
+
+        except Exception as e:
+
+            error_msg = f"시뮬레이션 오류 발생: {e}"
+
+            st.error(error_msg)
+
+            st.session_state.messages.append({"role": "Architect", "content": error_msg})
