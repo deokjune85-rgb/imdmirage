@@ -1,16 +1,16 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 v9.0 — Vault Restoration Build
+# 🛡️ 베리타스 엔진 v9.5 — Operational Boot Restoration
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
-import requests, numpy as np
+import numpy as np
 
 # ======================================================
-# 1. 시스템 설정 (The Vault & Mirage Protocol)
+# 1. 시스템 설정
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 9.0", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 9.5", page_icon="🛡️", layout="centered")
 
-# CSS 해킹 (신기루 프로토콜)
+# 기본 스타일 (v7.0 감성 + 시각 통일)
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
@@ -20,8 +20,10 @@ html, body, div, span, p {
     font-size: 17px !important;
     line-height: 1.6 !important;
 }
-
-/* ✅ 타이틀은 왼쪽 정렬, 크게 */
+[data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
+    background-color: inherit !important;
+    border: none !important;
+}
 h1 {
     text-align: left !important;
     font-weight: 900 !important;
@@ -29,14 +31,6 @@ h1 {
     color: #FFFFFF !important;
     margin-top: 5px !important;
 }
-
-/* 채팅 메시지 배경 제거 */
-[data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
-    background-color: inherit !important;
-    border: none !important;
-}
-
-/* 메시지 텍스트 자연스러운 등장 */
 .lineblock {
     white-space: pre-wrap;
     opacity: 0;
@@ -46,15 +40,10 @@ h1 {
     from {opacity: 0;}
     to {opacity: 1;}
 }
-
-/* 자동 스크롤 보조 */
-.stChatMessage {
-    scroll-margin-bottom: 0 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# 자동 스크롤 유지 (맨 하단 이동)
+# 자동 스크롤
 st.markdown("""
 <script>
 const scrollToBottom = () => {
@@ -68,17 +57,16 @@ setInterval(scrollToBottom, 400);
 # ======================================================
 # 2. 타이틀 및 경고
 # ======================================================
-st.title("베리타스 엔진 버전 9.0")
-
+st.title("베리타스 엔진 버전 9.5")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
-# 3. API 키
+# 3. API 설정
 # ======================================================
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭을 확인하라.")
+    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭 확인 필요.")
     st.stop()
 
 genai.configure(api_key=API_KEY)
@@ -96,15 +84,24 @@ if "chat" not in st.session_state:
     st.session_state.chat = st.session_state.model.start_chat(history=[])
     st.session_state.messages = []
 
+    # ✅ 시스템 자동 부팅 메시지 (Phase 0)
+    st.session_state.messages.append({
+        "role": "Architect",
+        "content": "시스템 초기화: 시뮬레이션 도메인 선택.\n\n분석을 진행할 사건의 법률/재무/의료 분야를 선택하십시오.\n\n1. 이혼 및 가사법 (Divorce/Family Law)\n2. 형사 변호 (Criminal Defense)\n3. 파산 및 회생 (Bankruptcy/Insolvency)\n4. 지적 재산권 (IP/Patent)\n5. 의료 소송 (Medical Malpractice)\n6. 세무 및 회계 (Tax/Accounting)\n7. 행정 소송 (Administrative Law)\n\n번호 또는 원하시는 분야를 입력하십시오."
+    })
+
 # ======================================================
-# 5. 사용자 입력 및 응답 생성
+# 5. 출력 루프
 # ======================================================
 for msg in st.session_state.messages:
-    avatar = "👤" if msg["role"] == "user" else "🛡️"
     role = "Client" if msg["role"] == "user" else "Architect"
+    avatar = "👤" if msg["role"] == "user" else "🛡️"
     with st.chat_message(role, avatar=avatar):
         st.markdown(f"<div class='lineblock'>{msg['content']}</div>", unsafe_allow_html=True)
 
+# ======================================================
+# 6. 입력 및 응답
+# ======================================================
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
