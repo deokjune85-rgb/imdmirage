@@ -48,6 +48,87 @@ except KeyError:
 genai.configure(api_key=API_KEY)
 
 
+# --- [작전명: 트로이 목마] 게릴라 RAG 엔진 함수 정의 ---
+EMBEDDING_MODEL_NAME = "models/text-embedding-004" # 구글 임베딩 모델
+
+# 텍스트 임베딩 함수
+def embed_text(text, task_type="retrieval_document"):
+    try:
+        # 텍스트 정제 (줄바꿈 제거 등)
+        clean_text = text.replace('\n', ' ').strip()
+        if not clean_text:
+            return None
+            
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            content=clean_text,
+            task_type=task_type)
+        return result['embedding']
+    except Exception as e:
+        print(f"Embedding error: {e}") # 콘솔 로그 기록
+        return None
+
+# 판례 데이터 로드 및 임베딩 함수 (st.cache_data로 캐싱하여 성능 최적화)
+@st.cache_data
+def load_and_embed_precedents(file_path='precedents_data.txt'):
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}") # 콘솔 로그 기록
+        return [], []
+    
+    # 파일 읽기 및 판례 분할
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Error reading file: {e}") # 콘솔 로그 기록
+        return [], []
+    
+    precedents = content.split('---END OF PRECEDENT---')
+    precedents = [p.strip() for p in precedents if p.strip()]
+    
+    # 각 판례 임베딩 (시간 소요)
+    embeddings = []
+    valid_precedents = []
+    for precedent in precedents:
+        embedding = embed_text(precedent)
+        if embedding:
+            embeddings.append(embedding)
+            valid_precedents.append(precedent)
+    
+    print(f"Successfully loaded and embedded {len(valid_precedents)} precedents.") # 콘솔 로그 기록
+    return valid_precedents, embeddings
+
+# 유사 판례 검색 함수 (코사인 유사도)
+def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
+    if not embeddings or not precedents:
+        return []
+
+    # 쿼리 임베딩
+    query_embedding = embed_text(query_text, task_type="search_query")
+    if query_embedding is None:
+        return []
+    
+    # 코사인 유사도 계산 (NumPy 사용)
+    # Google의 text-embedding-004는 정규화된 벡터를 반환하므로 내적(Dot product)이 코사인 유사도임.
+    embeddings_np = np.array(embeddings)
+    query_embedding_np = np.array(query_embedding)
+    
+    similarities = np.dot(embeddings_np, query_embedding_np)
+    
+    # 상위 K개 인덱스 찾기
+    top_k_indices = np.argsort(similarities)[::-1][:top_k]
+    
+    # 결과 반환 (보고서 삽입용)
+    results = []
+    for idx in top_k_indices:
+        # 유사도가 너무 낮으면 제외 (임계값 0.6 설정)
+        if similarities[idx] > 0.6: 
+            results.append(f"[유사 판례 발견 (유사도: {similarities[idx]:.2f})]\n{precedents[idx]}\n---\n")
+    
+    return results
+# ------------------------------------------------------------
+
+
 
 # 외부 파일 로드 (system_prompt.txt에 프라임 게놈 전체 저장)
 
