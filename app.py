@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.2 — Architect Final Build
+# 🛡️ Veritas Engine v7.3 — RAG Fix Final Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,7 +8,7 @@ import requests, re, os, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v7.2", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.3", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
@@ -16,7 +16,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.2")
+st.title("베리타스 엔진 버전 7.3")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -84,7 +84,7 @@ EMBED_MODEL = "models/text-embedding-004"
 def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
     try:
         res = genai.embed_content(model=EMBED_MODEL, content=text, task_type=task_type)
-        return res['embedding']
+        return np.array(res['embedding'], dtype=float)
     except Exception as e:
         st.error(f"임베딩 오류: {e}")
         return None
@@ -95,32 +95,25 @@ def load_and_embed_precedents(file_path):
     try:
         if file_path.startswith("http"):
             r = requests.get(file_path, timeout=10)
-            if r.status_code != 200:
-                raise FileNotFoundError(f"HTTP {r.status_code}")
+            r.raise_for_status()
             content = r.text
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-    except FileNotFoundError:
-        st.warning(f"⚠️ '탄약고({file_path})' '발견 실패'. '게릴라 RAG' 작동 불가.")
-        return [], np.array([])
-    except Exception as e:
-        st.error(f"'탄약고' 로드 실패: {e}")
+    except Exception:
         return [], np.array([])
 
     precedents = [p.strip() for p in content.split('---END OF PRECEDENT---') if p.strip()]
     if not precedents:
-        st.warning(f"⚠️ '탄약고({file_path})'가 비어 있음.")
         return [], np.array([])
 
-    st.success(f"'{file_path}' '탄약고' '장전 완료'. 판례 {len(precedents)}개 확보.")
     emb_list, valid = [], []
     for p in precedents:
         emb = embed_text(p)
-        if emb:
+        if emb is not None:
             emb_list.append(emb)
             valid.append(p)
-    return valid, np.array(emb_list)
+    return valid, np.vstack(emb_list) if emb_list else np.array([])
 
 def find_similar_precedents(query, precedents, embeddings, top_k=3):
     """'사건'과 '가장' '유사한' 판례를 찾아 리스트로 반환한다."""
@@ -131,14 +124,12 @@ def find_similar_precedents(query, precedents, embeddings, top_k=3):
     if q_emb is None:
         return "", []
 
-    # 유사도 계산 (코사인 유사도)
+    # 코사인 유사도 계산
     emb_norms = np.linalg.norm(embeddings, axis=1)
     q_norm = np.linalg.norm(q_emb)
     sims = np.dot(embeddings, q_emb) / (emb_norms * q_norm)
 
     top_k_idx = np.argsort(sims)[-top_k:][::-1]
-
-    # 모델에 넣을 요약 문맥 + 실제 원문 리스트
     context_text = "\n\n[참조 판례 — 자동 첨부]\n"
     selected_docs = []
 
@@ -147,13 +138,8 @@ def find_similar_precedents(query, precedents, embeddings, top_k=3):
         text = precedents[i]
         short_excerpt = text[:600].replace('\n', ' ')
         context_text += f"--- (유사도 {sim*100:.0f}%) ---\n{short_excerpt}\n"
-        selected_docs.append({
-            "similarity": float(sim),
-            "text": text
-        })
-
+        selected_docs.append({"similarity": float(sim), "text": text})
     return context_text, selected_docs
-
 
 # ======================================================
 # 5. SYSTEM PROMPT (시뮬레이션 프로토콜)
@@ -176,7 +162,6 @@ if "chat" not in st.session_state:
     st.session_state.chat = st.session_state.model.start_chat(history=[])
     st.session_state.messages = []
 
-    # ✅ Phase 0: 시스템 시동 (초기화)
     initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
     try:
         response = st.session_state.chat.send_message(initial_prompt)
@@ -201,9 +186,9 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     with st.spinner("Architect 시스템 연산 중..."):
         try:
             rag_context, selected_docs = find_similar_precedents(
-    prompt, st.session_state.precedents, st.session_state.embeddings
-)
-full_prompt = prompt + rag_context
+                prompt, st.session_state.precedents, st.session_state.embeddings
+            )
+            full_prompt = prompt + rag_context
             response_stream = st.session_state.chat.send_message(full_prompt, stream=True)
 
             with st.chat_message("Architect", avatar="🛡️"):
@@ -213,30 +198,25 @@ full_prompt = prompt + rag_context
                     answer += chunk.text
                     placeholder.markdown(answer + "▌")
                 placeholder.markdown(answer)
-# ✅ 판례 자동 첨부 섹션
-if selected_docs:
-    report_md = "### 실시간 판례 전문 분석\n\n"
-    report_md += f"* 검색 쿼리: `{prompt}`\n\n"
 
-    for doc in selected_docs:
-        sim = doc["similarity"]
-        text = doc["text"]
-        # 간단히 사건명, 요약, 일부 전문 추출
-        lines = text.split('\n')
-        title = lines[0][:80] if lines else "제목 없음"
-        excerpt = " ".join(lines[1:5])[:300].strip()
-        report_md += (
-            f"* 판례 [{title}](#)\n"
-            f"  - 유사도: {sim*100:.0f}%\n"
-            f"  - 전문 일부: \"{excerpt}...\"\n\n"
-        )
-
-    # 화면에 출력
-    with st.chat_message("Architect", avatar="🛡️"):
-        st.markdown(report_md)
-
-    # 메시지 로그에도 저장
-    st.session_state.messages.append({"role": "Architect", "content": report_md})
+            # ✅ 실시간 판례 분석 섹션
+            if selected_docs:
+                report_md = "### 실시간 판례 전문 분석\n\n"
+                report_md += f"* 검색 쿼리: `{prompt}`\n\n"
+                for doc in selected_docs:
+                    sim = doc["similarity"]
+                    text = doc["text"]
+                    lines = text.split('\n')
+                    title = lines[0][:80] if lines else "제목 없음"
+                    excerpt = " ".join(lines[1:5])[:300].strip()
+                    report_md += (
+                        f"* 판례 [{title}](#)\n"
+                        f"  - 유사도: {sim*100:.0f}%\n"
+                        f"  - 전문 일부: \"{excerpt}...\"\n\n"
+                    )
+                with st.chat_message("Architect", avatar="🛡️"):
+                    st.markdown(report_md)
+                st.session_state.messages.append({"role": "Architect", "content": report_md})
 
             # ✅ 법제처 API 후처리
             if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
