@@ -5,6 +5,18 @@ import requests
 import re 
 import numpy as np 
 
+# app.py 맨 위에 추가 (이거만 바꿔!)
+PRECEDENTS_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+
+def load_precedents():
+    try:
+        response = requests.get(PRECEDENTS_URL)
+        response.raise_for_status()
+        text = response.text
+        return [p.strip() for p in text.split("---END OF PRECEDENT---") if p.strip()]
+    except:
+        return ["[임시 판례] 정당방위 무죄"]
+
 # --- ★★★ '환경' '결함' '수정' (v4.2) ★★★ ---
 # 'app.py' '파일' '자신'의 '절대 경로'를 '기준'으로 '삼는다'.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
