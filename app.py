@@ -175,6 +175,8 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
             # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 트리거 고정
+            full_response_clean = full_response.replace(" ", "").replace("\n", "").strip()
+            
             if any(key in full_response for key in ["브리핑 보고서", "최종 보고서", "최종 결론", "최종 판단", "요약 보고서"]):
                 precedents, embeddings = load_and_embed_precedents()
                 similar_cases = find_similar_precedents(prompt, precedents, embeddings)
