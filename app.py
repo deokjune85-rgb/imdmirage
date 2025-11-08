@@ -121,33 +121,91 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
     return valid_precedents, embeddings
 
 
-def find_similar_precedents(query_text, precedents, embeddings, top_k=5):
+def _parse_precedent_block(text: str) -> dict:
+    """프리텍스트 판례 블록에서 제목/선고/요지/발췌를 최대한 뽑아낸다(룰베이스)."""
+    import re
+    t = text.strip()
+
+    # 제목(첫 줄 또는 대법원/고등법원 헤더)
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    title = lines[0][:120] if lines else "제목 없음"
+
+    # [대법원 2024. 1. 18. 선고 ... 판결] 패턴에서 법원/선고일자 추출
+    m = re.search(r'\[(?P<court>[^ \[\]]+)\s+(?P<date>\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.)\s*선고.*?판결\]', t)
+    court = m.group('court') if m else ""
+    date  = m.group('date') if m else ""
+
+    # 【판결요지】 또는 【판시사항】 일부 추출
+    holding = ""
+    m2 = re.search(r'【판결요지】(.*?)(【|$)', t, re.S)
+    if m2:
+        holding = re.sub(r'\s+', ' ', m2.group(1)).strip()
+    else:
+        m3 = re.search(r'【판시사항】(.*?)(【|$)', t, re.S)
+        if m3:
+            holding = re.sub(r'\s+', ' ', m3.group(1)).strip()
+
+    if not holding:
+        # 없으면 본문 초반 160자 정도로 대체
+        holding = re.sub(r'\s+', ' ', t)[:160].strip()
+
+    # 전문 일부(전문/이유/본문 근처에서 120~160자)
+    excerpt = ""
+    for key in ["【전문】", "【이 유】", "【이유】", "【본문】"]:
+        pos = t.find(key)
+        if pos != -1:
+            excerpt = re.sub(r'\s+', ' ', t[pos:pos+300]).strip()
+            break
+    if not excerpt:
+        excerpt = re.sub(r'\s+', ' ', t)[:300].strip()
+
+    # 좀 줄여주기
+    if len(holding) > 130: holding = holding[:130].rstrip() + "…"
+    if len(excerpt) > 160: excerpt = excerpt[:160].rstrip() + "…"
+
+    return {
+        "title": title,
+        "court": court,
+        "date":  date,
+        "holding": holding,
+        "excerpt": excerpt,
+    }
+
+
+def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
+    """
+    기존: 커다란 전문 문자열을 그대로 반환
+    변경: 깔끔한 요약카드용 dict 목록 반환
+    """
     if not embeddings or not precedents:
         return []
 
-    q_emb = embed_text(query_text, task_type="RETRIEVAL_QUERY")
+    q_emb = embed_text(query_text, task_type="search_query")
     if q_emb is None:
         return []
 
-    import numpy as np
-    M = np.array(embeddings, dtype=float)      # (N, D)
-    q = np.array(q_emb, dtype=float)           # (D,)
+    embeddings_np = np.array(embeddings)
+    q_np = np.array(q_emb)
+    sims = np.dot(embeddings_np, q_np)
 
-    # 코사인 유사도
-    M_norm = np.linalg.norm(M, axis=1) + 1e-12
-    q_norm = np.linalg.norm(q) + 1e-12
-    sims = (M @ q) / (M_norm * q_norm)
-
-    order = np.argsort(sims)[::-1][:top_k]
+    # 상위 K개
+    idxs = np.argsort(sims)[::-1][:top_k]
 
     results = []
-    for idx in order:
-        if sims[idx] >= 0.20:  # 완화
-            snippet = precedents[idx].replace("\r", "").replace("\n\n\n", "\n\n")
-            results.append(
-                f"[유사 판례 발견 (유사도: {sims[idx]:.2f})]\n{snippet}\n---\n"
-            )
+    for i in idxs:
+        sim = float(sims[i])
+        # 임계값 너무 높으면 안 나오는 문제 → 살짝 완화(0.20)
+        if sim < 0.20:
+            continue
+
+        parsed = _parse_precedent_block(precedents[i])
+        results.append({
+            "similarity": sim,  # 0~1
+            **parsed
+        })
+
     return results
+
 
 
 
@@ -253,9 +311,21 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     if similar_cases:
                         st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
                         # 과도한 줄바꿈 방지
-                        for case in similar_cases:
-                            cleaned = case.replace("\r", "").replace("\n\n\n", "\n\n")
-                            st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
+                            if similar_cases:
+        # 헤더 + 검색 쿼리
+        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `" + prompt + "`\n")
+
+        # 상위 3건만 카드형 요약으로 출력
+        for case in similar_cases[:3]:
+            sim_pct = int(round(case["similarity"] * 100))
+            item_md = (
+                f"* 판례 [{case.get('title','제목 없음')}]  \n"
+                f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
+                f"  - 판결요지: {case.get('holding','').strip()}  \n"
+                f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
+            )
+            st.markdown(item_md)
+
                     else:
                         st.info("ℹ️ 최종 보고서 기준으로 매칭된 유사 판례가 없습니다. (임계값 0.20)")
 
