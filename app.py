@@ -155,52 +155,65 @@ for message in st.session_state.messages:
 
 
 # --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
+# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
+    # 매 턴마다 판례 출력 여부 리셋
+    st.session_state["did_precedent"] = False
+
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(f"<div class='fadein'>{prompt}</div>", unsafe_allow_html=True)
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
+            # 1) 스트리밍 수신
             response_stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 full_response = ""
                 for chunk in response_stream:
+                    # 간혹 chunk.text가 None인 경우가 있어 가드
+                    if not getattr(chunk, "text", None):
+                        continue
                     full_response += chunk.text
-                    placeholder.markdown(f"<div class='fadein'>{full_response}▌</div>", unsafe_allow_html=True)
-                placeholder.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
+                    placeholder.markdown(
+                        f"<div class='fadein'>{full_response}▌</div>",
+                        unsafe_allow_html=True
+                    )
+                # 스트림 표시 마무리
+                placeholder.markdown(
+                    f"<div class='fadein'>{full_response}</div>",
+                    unsafe_allow_html=True
+                )
 
-            # ✅ 스트림 완료 후 저장
+            # 2) 스트림이 비어있으면 폴백(드물게 finish_reason=1로 빈 응답 나오는 경우)
+            if not full_response.strip():
+                non_stream_resp = st.session_state.chat.send_message(prompt)
+                try:
+                    text_part = getattr(non_stream_resp, "text", None)
+                    if text_part:
+                        full_response = text_part
+                except Exception:
+                    pass
+                if full_response.strip():
+                    with st.chat_message("Architect", avatar="🛡️"):
+                        st.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
+
+            # 3) 메시지 저장
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 통합 트리거 (함수/내부 try 없이)
-            t_compact = (full_response or "").replace(" ", "").lower()
-            is_final = (
-                (
-                    ("브리핑보고서" in t_compact) or
-                    ("최종보고서" in t_compact) or
-                    ("최종결론" in t_compact) or
-                    ("최종판단" in t_compact) or
-                    ("요약보고서" in t_compact) or
-                    ("[극비]" in t_compact) or
-                    ("유사수신/사기전략브리핑보고서" in t_compact) or
-                    ("면책조항" in t_compact)
-                )
-                and (
-                    ("## 1. 사건 개요" in full_response) or
-                    ("## 1." in full_response) or
-                    ("사건 개요" in full_response)
-                )
-            )
-
-            if is_final:
+            # 4) ✅ ‘면책조항에서 멈춤’ 방지: 키워드 트리거에 의존하지 말고
+            #    매 턴 **한 번**은 무조건 판례 블록을 시도해서 붙인다.
+            if st.session_state.get("did_precedent") is False:
                 precedents, embeddings = load_and_embed_precedents()
                 similar_cases = find_similar_precedents(prompt, precedents, embeddings)
                 if similar_cases:
                     st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
                     for case in similar_cases:
-                        st.markdown(f"<div class='fadein'>{case}</div>", unsafe_allow_html=True)
+                        # 과도한 줄바꿈이 보이면 최소화
+                        cleaned = case.replace("\n\n\n", "\n\n")
+                        st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
+                st.session_state["did_precedent"] = True
 
         except Exception as e:
             err = f"시뮬레이션 오류 발생: {e}"
