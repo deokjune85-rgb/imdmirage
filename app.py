@@ -1,9 +1,9 @@
 import streamlit as st
 import google.generativeai as genai
-import os # 'system_prompt.txt'를 '열기' 위한 '필수' 모듈
-import requests # '용병(API)' 모듈
-import re # '트리거(Trigger)' 모듈
-import numpy as np # '게릴라 RAG'의 '심장(Vector Search)' 모듈
+import os 
+import requests 
+import re 
+import numpy as np 
 
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
 st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
@@ -85,11 +85,9 @@ def show_full_precedent(prec_id):
 
 
 # --- ★★★ '탄약고 A': 게릴라 RAG (트로이 목마) ★★★ ---
-# '총알(precedents_data.txt)'을 '벡터'로 '변환'하는 '뇌'
 EMBEDDING_MODEL_NAME = "models/text-embedding-004" 
 
 def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
-    """'텍스트'를 '벡터(숫자)'로 '변환'하는 '연금술'."""
     try:
         result = genai.embed_content(
             model=EMBEDDING_MODEL_NAME,
@@ -100,7 +98,7 @@ def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
         st.error(f"임베딩 '오류' (모델 '호출' '실패'): {e}")
         return None
 
-@st.cache_data(show_spinner=False) # '탄약고'는 '한 번'만 '장전'한다. (캐시)
+@st.cache_data(show_spinner=False)
 def load_and_embed_precedents(file_path='precedents_data.txt'):
     """'txt' '쓰레기'를 '읽어' '벡터' '탄약'으로 '주조'한다."""
     try:
@@ -108,50 +106,48 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
             content = f.read()
     except FileNotFoundError:
         st.warning(f"경고: '탄약고({file_path})' '발견' '실패'. '게릴라 RAG'가 '작동'하지 '않는다'.")
-        return [], [], []
+        # --- ★★★ '오류' '수정' (v4.1) ★★★ ---
+        # '3개'가 '아니라' '2개'의 '쓰레기'를 '반환'한다.
+        return [], np.array([])
     except Exception as e:
         st.error(f"'탄약고' '로드' '실패': {e}")
-        return [], [], []
+        return [], np.array([]) # '2개' '반환'
 
-    # '---END OF PRECEDENT---' 쪼가리로 '총알'을 '분리'한다.
     precedents = content.split('---END OF PRECEDENT---')
     precedents = [p.strip() for p in precedents if p.strip()]
     
     if not precedents:
         st.warning(f"경고: '탄약고({file_path})'가 '비어'있다. '사기극' '실패'.")
-        return [], [], []
+        return [], np.array([]) # '2개' '반환'
 
     st.success(f"'{file_path}' '탄약고' '장전' '완료'. '총알(판례)' {len(precedents)}개 '확인'.")
     embeddings = []
+    valid_precedents = []
     for p in precedents:
-        # '총알' 하나하나에 '벡터' '인식표'를 '부착'한다.
         emb = embed_text(p)
         if emb:
             embeddings.append(emb)
+            valid_precedents.append(p)
     
     # '총알(텍스트)'과 '인식표(벡터)'를 '반환'한다.
-    return precedents, np.array(embeddings)
+    return valid_precedents, np.array(embeddings)
 
 def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
     """'사건'과 '가장' '유사한' '총알' 3개를 '발사'한다."""
     if embeddings.size == 0:
         return "" # '탄약고'가 '비었'다.
 
-    # '사건' '자체'를 '벡터'로 '변환' (RETRIEVAL_QUERY)
     query_embedding = embed_text(query_text, task_type="RETRIEVAL_QUERY")
     if query_embedding is None:
         return ""
 
-    # '벡터' '유사도' '계산' (코사인 유사도)
     similarities = np.dot(embeddings, query_embedding)
     
-    # '가장' '유사'한 'Top-K' '인덱스' '추출'
     top_k_indices = np.argsort(similarities)[-top_k:][::-1]
     
-    # 'EPE(뇌)'에 '주입'할 '데이터' '가공'
     context = "\n\n[시스템 참조: '게릴라 RAG'가 '탄약고(txt)'에서 '유사 판례' '탐지' '완료']\n"
     for i in top_k_indices:
-        if similarities[i] > 0.7: # '유사도' 70% '이상'만 '보고'
+        if similarities[i] > 0.7: 
             context += f"--- (유사도: {similarities[i]*100:.0f}%)\n{precedents[i]}\n---\n"
             
     return context
@@ -167,6 +163,8 @@ except FileNotFoundError:
     st.stop()
 
 # '탄약고 A(RAG)' '장전' (앱 '시작' 시 '1회' '실행')
+# --- ★★★ '오류' '수정' 지점 (v4.1) ★★★ ---
+# '171번' '라인'이 '여기'다. 'load_and_embed_precedents'는 '이제' '2개'만 '반환'한다.
 if "precedents" not in st.session_state:
     st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents()
 
@@ -206,7 +204,6 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     with st.spinner("Architect 시스템 연산 중..."):
         try:
             # --- ★ 1. '게릴라 RAG' '선제' '발사' ★ ---
-            # '뇌(EPE)'에 '명령'하기 '전', '탄약고 A(txt)'를 '먼저' '뒤진다'.
             with st.spinner("'탄약고 A(txt)'에서 '유사 판례' '탐색' 중..."):
                 rag_context = find_similar_precedents(
                     prompt, 
@@ -214,11 +211,9 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     st.session_state.embeddings
                 )
             
-            # '뇌(EPE)'에 '주입'할 '최종 명령' = '네놈의 질문' + 'RAG가 찾은 총알'
             final_prompt_to_epe = prompt + rag_context
 
             # --- ★ 2. '뇌(EPE)' '작동' ★ ---
-            # 'EPE'는 '네놈의 질문'과 'RAG 총알'을 '동시'에 '쳐먹고' '답변'을 '융합'한다.
             response_stream = st.session_state.chat.send_message(final_prompt_to_epe, stream=True)
             
             with st.chat_message("Architect", avatar="🛡️"):
@@ -229,9 +224,8 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     response_placeholder.markdown(full_response + "▌") 
                 
                 # --- ★ 3. '자판기(API)' '후처리' ★ ---
-                # '뇌(EPE)'가 '응답'을 '완료'한 '후'에, '자판기' '트리거'를 '확인'한다.
                 if any(x in prompt.lower() for x in ["판례", "전문", "본문", "판결문", "전체", "아이디"]):
-                    ids = re.findall(r'\d{6,8}', prompt) # 'ID' '추출'
+                    ids = re.findall(r'\d{6,8}', prompt) 
                     if ids:
                         with st.spinner(f"법제처 API 호출... 판례 ID {', '.join(ids)} '실시간 약탈' 중..."):
                             for pid in ids[:3]:
