@@ -107,21 +107,35 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
     print(f"Successfully loaded and embedded {len(valid_precedents)} precedents.")
     return valid_precedents, embeddings
 
-def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
+def find_similar_precedents(query_text, precedents, embeddings, top_k=5):
     if not embeddings or not precedents:
         return []
+
+    # 쿼리 임베딩
     query_embedding = embed_text(query_text, task_type="search_query")
     if query_embedding is None:
         return []
+
     embeddings_np = np.array(embeddings)
     q_np = np.array(query_embedding)
-    similarities = np.dot(embeddings_np, q_np)
-    top_k_indices = np.argsort(similarities)[::-1][:top_k]
+
+    # text-embedding-004는 보통 단위 정규화되어 있어 내적 ≈ 코사인 유사도
+    sims = np.dot(embeddings_np, q_np)
+
+    # 상위 K개
+    order = np.argsort(sims)[::-1][:top_k]
+
     results = []
-    for idx in top_k_indices:
-        if similarities[idx] > 0.6:
-            results.append(f"[유사 판례 발견 (유사도: {similarities[idx]:.2f})]\\n{precedents[idx]}\\n---\\n")
+    for idx in order:
+        # 🔽 임계값 완화: 0.20 (너무 깐깐하면 아무 것도 안 뜸)
+        if sims[idx] >= 0.20:
+            # 과도한 줄바꿈만 최소화
+            snippet = precedents[idx].replace("\r", "").replace("\n\n\n", "\n\n")
+            results.append(
+                f"[유사 판례 발견 (유사도: {sims[idx]:.2f})]\n{snippet}\n---\n"
+            )
     return results
+
 
 
 # --- 4. 시스템 프라임 유전자 (Prime Genome) ---
@@ -153,12 +167,9 @@ for message in st.session_state.messages:
     with st.chat_message(role, avatar=avatar):
         st.markdown(f"<div class='fadein'>{message['content']}</div>", unsafe_allow_html=True)
 
-
-# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
 # --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    # 매 턴마다 판례 출력 여부 리셋
-    st.session_state["did_precedent"] = False
+    st.session_state["did_precedent"] = False  # 매 턴 리셋
 
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
@@ -166,13 +177,11 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
-            # 1) 스트리밍 수신
             response_stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 full_response = ""
                 for chunk in response_stream:
-                    # 간혹 chunk.text가 None인 경우가 있어 가드
                     if not getattr(chunk, "text", None):
                         continue
                     full_response += chunk.text
@@ -180,13 +189,11 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                         f"<div class='fadein'>{full_response}▌</div>",
                         unsafe_allow_html=True
                     )
-                # 스트림 표시 마무리
                 placeholder.markdown(
                     f"<div class='fadein'>{full_response}</div>",
                     unsafe_allow_html=True
                 )
 
-            # 2) 스트림이 비어있으면 폴백(드물게 finish_reason=1로 빈 응답 나오는 경우)
             if not full_response.strip():
                 non_stream_resp = st.session_state.chat.send_message(prompt)
                 try:
@@ -199,23 +206,27 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     with st.chat_message("Architect", avatar="🛡️"):
                         st.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
 
-            # 3) 메시지 저장
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # 4) ✅ ‘면책조항에서 멈춤’ 방지: 키워드 트리거에 의존하지 말고
-            #    매 턴 **한 번**은 무조건 판례 블록을 시도해서 붙인다.
+            # ✅ 매 턴 한 번은 강제 판례 시도
             if st.session_state.get("did_precedent") is False:
                 precedents, embeddings = load_and_embed_precedents()
-                similar_cases = find_similar_precedents(prompt, precedents, embeddings)
-                if similar_cases:
-                    st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
-                    for case in similar_cases:
-                        # 과도한 줄바꿈이 보이면 최소화
-                        cleaned = case.replace("\n\n\n", "\n\n")
-                        st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
+
+                # 🔽 추가: 탄약고 비었을 때 즉시 안내(왜 안 나오는지 바로 보이게)
+                if not precedents or not embeddings:
+                    st.warning("⚠️ 판례 탄약고가 비었거나 로드에 실패했습니다. 'precedents_data.txt' 파일을 앱 실행 디렉토리에 두세요.")
+                else:
+                    similar_cases = find_similar_precedents(prompt, precedents, embeddings)
+                    if similar_cases:
+                        st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
+                        for case in similar_cases:
+                            cleaned = case.replace("\n\n\n", "\n\n")
+                            st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
+
                 st.session_state["did_precedent"] = True
 
         except Exception as e:
             err = f"시뮬레이션 오류 발생: {e}"
             st.error(err)
             st.session_state.messages.append({"role": "Architect", "content": err})
+
