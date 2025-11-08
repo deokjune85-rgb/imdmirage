@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v8.1 — Always Append Precedent Mode
+# 🛡️ Veritas Engine v8.2 — Stable UI / Font Fix
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,26 +8,34 @@ import requests, re, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v8.1", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v8.2", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
-html, body, [class*="css"], [data-testid="stChatMessage"], [data-testid="stChatMessageContent"], div, span, p {
+/* ✅ 기본 다크 배경 복귀, 글자만 통일 */
+html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
     font-size: 16px !important;
     line-height: 1.7 !important;
     color: #FFFFFF !important;
-    background-color: transparent !important;
 }
-[data-testid="stChatMessage"] {
-    background: transparent !important;
+[data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
+    background-color: inherit !important;   /* Streamlit 기본 배경 유지 */
     border: none !important;
+}
+h1, h2, h3, h4, h5, h6 {
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+}
+/* ✅ Phase 리스트 들여쓰기 + 간격 조정 */
+.phase-list p {
+    margin-bottom: 6px !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🛡️ 베리타스 엔진 버전 8.1")
+st.title("🛡️ 베리타스 엔진 버전 8.2")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -43,20 +51,7 @@ genai.configure(api_key=API_KEY)
 OC_KEY = st.secrets.get("LAW_API_KEY", "DEOKJUNE")
 
 # ======================================================
-# 3. 법제처 판례 API
-# ======================================================
-def get_precedent_full(prec_id):
-    url = "http://www.law.go.kr/DRF/lawService.do"
-    params = {"OC": OC_KEY, "target": "prec", "ID": prec_id, "type": "JSON"}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        return data.get("판례정보", {})
-    except:
-        return {}
-
-# ======================================================
-# 4. 게릴라 RAG
+# 3. 판례 로드 & 임베딩
 # ======================================================
 EMBED_MODEL = "models/text-embedding-004"
 
@@ -94,7 +89,7 @@ def find_similar_precedents(query, precedents, embeddings, top_k=5):
     return [{"similarity": float(sims[i]), "text": precedents[i]} for i in idx if sims[i] > 0.7]
 
 # ======================================================
-# 5. SYSTEM PROMPT
+# 4. SYSTEM PROMPT
 # ======================================================
 try:
     with open("system_prompt.txt", "r", encoding="utf-8") as f:
@@ -119,17 +114,17 @@ if "chat" not in st.session_state:
         st.error(f"시스템 초기화 실패: {e}")
 
 # ======================================================
-# 6. CHAT INTERFACE
+# 5. CHAT UI
 # ======================================================
 for msg in st.session_state.messages:
     avatar = "👤" if msg["role"] == "user" else "🛡️"
     with st.chat_message(msg["role"], avatar=avatar):
-        st.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px;'>{msg['content']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='white-space:pre-wrap;'>{msg['content']}</div>", unsafe_allow_html=True)
 
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar="👤"):
-        st.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px;'>{prompt}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='white-space:pre-wrap;'>{prompt}</div>", unsafe_allow_html=True)
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
@@ -138,12 +133,12 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 placeholder = st.empty()
                 answer = ""
                 for chunk in stream:
-                    text = re.sub(r'(\d-\d\.)', r'\n\1', chunk.text)
-                    answer += text
-                    placeholder.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px;'>{answer}▌</div>", unsafe_allow_html=True)
-                placeholder.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px;'>{answer}</div>", unsafe_allow_html=True)
+                    # ✅ 줄바꿈 자동삽입 코드 제거 (Phase 버그 방지)
+                    answer += chunk.text
+                    placeholder.markdown(f"<div style='white-space:pre-wrap;'>{answer}▌</div>", unsafe_allow_html=True)
+                placeholder.markdown(f"<div style='white-space:pre-wrap;'>{answer}</div>", unsafe_allow_html=True)
 
-            # ✅ 항상 마지막에 판례 자동 추가 (조건 없음)
+            # ✅ 항상 마지막에 판례 자동 추가
             docs = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
             if docs:
                 report = "### 🧾 실시간 판례 전문 분석 (자동)\n\n"
@@ -154,7 +149,7 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     excerpt = " ".join(d["text"].split("\n")[1:5])[:300]
                     report += f"* 판례 [{title}](#)\n  - 유사도: {sim*100:.0f}%\n  - 전문 일부: \"{excerpt}...\"\n\n"
                 with st.chat_message("Architect", avatar="🛡️"):
-                    st.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px;'>{report}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='white-space:pre-wrap;'>{report}</div>", unsafe_allow_html=True)
 
             st.session_state.messages.append({"role": "Architect", "content": answer})
 
