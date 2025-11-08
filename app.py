@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.3 — RAG Fix Final Build
+# 🛡️ Veritas Engine v7.4 — Phase-End RAG Final Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,7 +8,7 @@ import requests, re, os, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v7.3", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.4", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
@@ -16,7 +16,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.3")
+st.title("베리타스 엔진 버전 7.4")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -85,8 +85,7 @@ def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
     try:
         res = genai.embed_content(model=EMBED_MODEL, content=text, task_type=task_type)
         return np.array(res['embedding'], dtype=float)
-    except Exception as e:
-        st.error(f"임베딩 오류: {e}")
+    except Exception:
         return None
 
 @st.cache_data(show_spinner=False)
@@ -115,34 +114,26 @@ def load_and_embed_precedents(file_path):
             valid.append(p)
     return valid, np.vstack(emb_list) if emb_list else np.array([])
 
-def find_similar_precedents(query, precedents, embeddings, top_k=3):
+def find_similar_precedents(query, precedents, embeddings, top_k=5):
     """'사건'과 '가장' '유사한' 판례를 찾아 리스트로 반환한다."""
     if embeddings.size == 0:
-        return "", []
-
+        return []
     q_emb = embed_text(query, task_type="RETRIEVAL_QUERY")
     if q_emb is None:
-        return "", []
-
-    # 코사인 유사도 계산
+        return []
     emb_norms = np.linalg.norm(embeddings, axis=1)
     q_norm = np.linalg.norm(q_emb)
     sims = np.dot(embeddings, q_emb) / (emb_norms * q_norm)
-
     top_k_idx = np.argsort(sims)[-top_k:][::-1]
-    context_text = "\n\n[참조 판례 — 자동 첨부]\n"
     selected_docs = []
-
     for i in top_k_idx:
         sim = sims[i]
         text = precedents[i]
-        short_excerpt = text[:600].replace('\n', ' ')
-        context_text += f"--- (유사도 {sim*100:.0f}%) ---\n{short_excerpt}\n"
         selected_docs.append({"similarity": float(sim), "text": text})
-    return context_text, selected_docs
+    return selected_docs
 
 # ======================================================
-# 5. SYSTEM PROMPT (시뮬레이션 프로토콜)
+# 5. SYSTEM PROMPT
 # ======================================================
 try:
     with open("system_prompt.txt","r",encoding="utf-8") as f:
@@ -161,7 +152,6 @@ if "model" not in st.session_state:
 if "chat" not in st.session_state:
     st.session_state.chat = st.session_state.model.start_chat(history=[])
     st.session_state.messages = []
-
     initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
     try:
         response = st.session_state.chat.send_message(initial_prompt)
@@ -185,12 +175,7 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
-            rag_context, selected_docs = find_similar_precedents(
-                prompt, st.session_state.precedents, st.session_state.embeddings
-            )
-            full_prompt = prompt + rag_context
-            response_stream = st.session_state.chat.send_message(full_prompt, stream=True)
-
+            response_stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 answer = ""
@@ -199,24 +184,28 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     placeholder.markdown(answer + "▌")
                 placeholder.markdown(answer)
 
-            # ✅ 실시간 판례 분석 섹션
-            if selected_docs:
-                report_md = "### 실시간 판례 전문 분석\n\n"
-                report_md += f"* 검색 쿼리: `{prompt}`\n\n"
-                for doc in selected_docs:
-                    sim = doc["similarity"]
-                    text = doc["text"]
-                    lines = text.split('\n')
-                    title = lines[0][:80] if lines else "제목 없음"
-                    excerpt = " ".join(lines[1:5])[:300].strip()
-                    report_md += (
-                        f"* 판례 [{title}](#)\n"
-                        f"  - 유사도: {sim*100:.0f}%\n"
-                        f"  - 전문 일부: \"{excerpt}...\"\n\n"
-                    )
-                with st.chat_message("Architect", avatar="🛡️"):
-                    st.markdown(report_md)
-                st.session_state.messages.append({"role": "Architect", "content": report_md})
+            # ✅ 판례 분석은 '최종 결과' 시점에서만 출력
+            if any(kw in answer for kw in ["보고서", "결과", "완료"]):
+                selected_docs = find_similar_precedents(
+                    prompt, st.session_state.precedents, st.session_state.embeddings
+                )
+                if selected_docs:
+                    report_md = "### 🧾 실시간 판례 전문 분석 (최종)\n\n"
+                    report_md += f"* 검색 쿼리: `{prompt}`\n\n"
+                    for doc in selected_docs:
+                        sim = doc["similarity"]
+                        text = doc["text"]
+                        lines = text.split('\n')
+                        title = lines[0][:80] if lines else "제목 없음"
+                        excerpt = " ".join(lines[1:5])[:300].strip()
+                        report_md += (
+                            f"* 판례 [{title}](#)\n"
+                            f"  - 유사도: {sim*100:.0f}%\n"
+                            f"  - 전문 일부: \"{excerpt}...\"\n\n"
+                        )
+                    with st.chat_message("Architect", avatar="🛡️"):
+                        st.markdown(report_md)
+                    st.session_state.messages.append({"role": "Architect", "content": report_md})
 
             # ✅ 법제처 API 후처리
             if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
