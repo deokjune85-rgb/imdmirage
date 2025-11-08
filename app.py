@@ -175,17 +175,29 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
             # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 트리거 고정
-            full_response_clean = full_response.replace(" ", "").replace("\n", "").strip()
-            
-            if any(key in full_response for key in ["브리핑 보고서", "최종 보고서", "최종 결론", "최종 판단", "요약 보고서"]):
-                precedents, embeddings = load_and_embed_precedents()
-                similar_cases = find_similar_precedents(prompt, precedents, embeddings)
-                if similar_cases:
-                    st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
-                    for case in similar_cases:
-                        st.markdown(f"<div class='fadein'>{case}</div>", unsafe_allow_html=True)
+def _is_final_report(txt: str) -> bool:
+    if not txt:
+        return False
+    # 공백/대소문자 무시 비교
+    t_compact = txt.replace(" ", "").lower()
+    markers = [
+        "브리핑보고서", "최종보고서", "최종결론", "최종판단", "요약보고서",
+        "[극비]", "유사수신/사기전략브리핑보고서", "면책조항"
+    ]
+    # 본문에 '보고서'류 마커가 있으면서, 개요 섹션(혹은 번호 섹션 헤더)이 감지되면 최종으로 간주
+    has_marker = any(m in t_compact for m in markers)
+    has_sections = ("## 1. 사건 개요" in txt) or ("## 1." in txt) or ("사건 개요" in txt)
+    return has_marker and has_sections
 
-        except Exception as e:
-            err = f"시뮬레이션 오류 발생: {e}"
-            st.error(err)
-            st.session_state.messages.append({"role": "Architect", "content": err})
+try:
+    if _is_final_report(full_response):
+        precedents, embeddings = load_and_embed_precedents()
+        similar_cases = find_similar_precedents(prompt, precedents, embeddings)
+        if similar_cases:
+            st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
+            for case in similar_cases:
+                st.markdown(f"<div class='fadein'>{case}</div>", unsafe_allow_html=True)
+except Exception as _e:
+    # 판례 출력 실패해도 메인 흐름은 끊기지 않도록 무음 처리
+    pass
+
