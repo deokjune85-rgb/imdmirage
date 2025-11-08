@@ -122,7 +122,7 @@ SYSTEM_INSTRUCTION = """
 if "model" not in st.session_state:
     try:
         # 1. 모델 로드
-        st.session_state.model = genai.GenerativeModel('models/gemini-1.5-flash-latest',
+        st.session_state.model = genai.GenerativeModel('models/gemini-2.5-flash',
                                                        system_instruction=SYSTEM_INSTRUCTION)
         
         # 2. [트로이 목마] 판례 데이터 로드 및 임베딩 (캐시 사용)
