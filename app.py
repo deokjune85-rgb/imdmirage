@@ -1,14 +1,14 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.1 — Mirage Protocol (Visual Integrity Build)
+# 🛡️ Veritas Engine v7.2 — Architect Final Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
 import requests, re, os, numpy as np
 
 # ======================================================
-# 1. SYSTEM CONFIGURATION
+# 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 7.1", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.2", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
@@ -16,16 +16,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.1")
+st.title("베리타스 엔진 버전 7.2")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
-# 2. KEYS & MODEL INIT
+# 2. API KEYS
 # ======================================================
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' '약탈' 실패. 'Secrets'를 '확인'하라.")
+    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭을 확인하라.")
     st.stop()
 
 genai.configure(api_key=API_KEY)
@@ -33,14 +33,12 @@ genai.configure(api_key=API_KEY)
 try:
     OC_KEY = st.secrets["LAW_API_KEY"]
 except KeyError:
-    OC_KEY = "DEOKJUNE_FALLBACK"
+    OC_KEY = "DEOKJUNE"
 
 # ======================================================
 # 3. 법제처 API 자판기
 # ======================================================
 def get_precedent_full(prec_id):
-    if OC_KEY == "DEOKJUNE_FALLBACK":
-        return {"error": "LAW_API_KEY 누락"}
     url = "http://www.law.go.kr/DRF/lawService.do"
     params = {"OC": OC_KEY, "target": "prec", "ID": prec_id, "type": "JSON"}
     try:
@@ -95,8 +93,7 @@ def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
 def load_and_embed_precedents(file_path):
     """GitHub RAW 또는 로컬 txt를 자동 인식하여 임베딩."""
     try:
-        # 자동 RAW 감지 (출력 없이 내부 처리)
-        if file_path.startswith("http://") or file_path.startswith("https://"):
+        if file_path.startswith("http"):
             r = requests.get(file_path, timeout=10)
             if r.status_code != 200:
                 raise FileNotFoundError(f"HTTP {r.status_code}")
@@ -140,7 +137,7 @@ def find_similar_precedents(query, precedents, embeddings, top_k=3):
     return context
 
 # ======================================================
-# 5. SYSTEM PROMPT & INITIALIZE
+# 5. SYSTEM PROMPT (시뮬레이션 프로토콜)
 # ======================================================
 try:
     with open("system_prompt.txt","r",encoding="utf-8") as f:
@@ -148,8 +145,9 @@ try:
 except Exception:
     SYSTEM_INSTRUCTION = "당신은 법률 AI 시스템 '베리타스 엔진'입니다."
 
+RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+
 if "precedents" not in st.session_state:
-    RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
     st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents(RAW_URL)
 
 if "model" not in st.session_state:
@@ -159,8 +157,16 @@ if "chat" not in st.session_state:
     st.session_state.chat = st.session_state.model.start_chat(history=[])
     st.session_state.messages = []
 
+    # ✅ Phase 0: 시스템 시동 (초기화)
+    initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
+    try:
+        response = st.session_state.chat.send_message(initial_prompt)
+        st.session_state.messages.append({"role": "Architect", "content": response.text})
+    except Exception as e:
+        st.error(f"시스템 초기화 실패: {e}")
+
 # ======================================================
-# 6. UI / CHAT LOOP
+# 6. UI / CHAT
 # ======================================================
 for msg in st.session_state.messages:
     role = "Client" if msg["role"] == "user" else "Architect"
@@ -177,8 +183,8 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
         try:
             rag_context = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
             full_prompt = prompt + rag_context
-
             response_stream = st.session_state.chat.send_message(full_prompt, stream=True)
+
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 answer = ""
@@ -187,11 +193,11 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     placeholder.markdown(answer + "▌")
                 placeholder.markdown(answer)
 
-            # 법제처 API 후처리
+            # ✅ 법제처 API 후처리
             if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
                 ids = re.findall(r'\d{6,8}', prompt)
                 for pid in ids[:3]:
-                    with st.spinner(f"법제처 API 호출 중... 판례 {pid}"):
+                    with st.spinner(f"법제처 판례 {pid} 호출 중..."):
                         answer += "\n\n" + show_full_precedent(pid)
                 placeholder.markdown(answer)
 
