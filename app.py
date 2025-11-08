@@ -123,18 +123,37 @@ def load_and_embed_precedents(file_path):
     return valid, np.array(emb_list)
 
 def find_similar_precedents(query, precedents, embeddings, top_k=3):
+    """'사건'과 '가장' '유사한' 판례를 찾아 리스트로 반환한다."""
     if embeddings.size == 0:
-        return ""
+        return "", []
+
     q_emb = embed_text(query, task_type="RETRIEVAL_QUERY")
     if q_emb is None:
-        return ""
-    sims = np.dot(embeddings, q_emb)
-    idx = np.argsort(sims)[-top_k:][::-1]
-    context = "\n\n[시스템 참조: 게릴라 RAG 유사 판례 탐지]\n"
-    for i in idx:
-        if sims[i] > 0.7:
-            context += f"--- (유사도 {sims[i]*100:.0f}%)\n{precedents[i][:800]}...\n"
-    return context
+        return "", []
+
+    # 유사도 계산 (코사인 유사도)
+    emb_norms = np.linalg.norm(embeddings, axis=1)
+    q_norm = np.linalg.norm(q_emb)
+    sims = np.dot(embeddings, q_emb) / (emb_norms * q_norm)
+
+    top_k_idx = np.argsort(sims)[-top_k:][::-1]
+
+    # 모델에 넣을 요약 문맥 + 실제 원문 리스트
+    context_text = "\n\n[참조 판례 — 자동 첨부]\n"
+    selected_docs = []
+
+    for i in top_k_idx:
+        sim = sims[i]
+        text = precedents[i]
+        short_excerpt = text[:600].replace('\n', ' ')
+        context_text += f"--- (유사도 {sim*100:.0f}%) ---\n{short_excerpt}\n"
+        selected_docs.append({
+            "similarity": float(sim),
+            "text": text
+        })
+
+    return context_text, selected_docs
+
 
 # ======================================================
 # 5. SYSTEM PROMPT (시뮬레이션 프로토콜)
@@ -181,8 +200,10 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
-            rag_context = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
-            full_prompt = prompt + rag_context
+            rag_context, selected_docs = find_similar_precedents(
+    prompt, st.session_state.precedents, st.session_state.embeddings
+)
+full_prompt = prompt + rag_context
             response_stream = st.session_state.chat.send_message(full_prompt, stream=True)
 
             with st.chat_message("Architect", avatar="🛡️"):
@@ -192,6 +213,30 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     answer += chunk.text
                     placeholder.markdown(answer + "▌")
                 placeholder.markdown(answer)
+# ✅ 판례 자동 첨부 섹션
+if selected_docs:
+    report_md = "### 실시간 판례 전문 분석\n\n"
+    report_md += f"* 검색 쿼리: `{prompt}`\n\n"
+
+    for doc in selected_docs:
+        sim = doc["similarity"]
+        text = doc["text"]
+        # 간단히 사건명, 요약, 일부 전문 추출
+        lines = text.split('\n')
+        title = lines[0][:80] if lines else "제목 없음"
+        excerpt = " ".join(lines[1:5])[:300].strip()
+        report_md += (
+            f"* 판례 [{title}](#)\n"
+            f"  - 유사도: {sim*100:.0f}%\n"
+            f"  - 전문 일부: \"{excerpt}...\"\n\n"
+        )
+
+    # 화면에 출력
+    with st.chat_message("Architect", avatar="🛡️"):
+        st.markdown(report_md)
+
+    # 메시지 로그에도 저장
+    st.session_state.messages.append({"role": "Architect", "content": report_md})
 
             # ✅ 법제처 API 후처리
             if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
