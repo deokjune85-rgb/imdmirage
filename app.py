@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.7 — Phase-End Output Sync Build
+# 🛡️ Veritas Engine v7.8 — Full Dark Clean Mode
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,32 +8,40 @@ import requests, re, os, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v7.7", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.8", page_icon="🛡️", layout="centered")
 
+# === 💡 전역 디자인 CSS (글자색 흰색 + 사이즈 통일 + 마크다운 정렬) ===
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
 html, body, [class*="css"] {
     font-family: 'Noto Sans KR', sans-serif !important;
     font-size: 16px !important;
-    line-height: 1.6 !important;
-    color: #222 !important;
-}
-h1, h2, h3, h4, h5, h6 {
-    font-family: 'Noto Sans KR', sans-serif !important;
-    font-weight: 700 !important;
-    color: #1a1a1a !important;
-    margin-top: 1.2em !important;
-    margin-bottom: 0.6em !important;
+    line-height: 1.7 !important;
+    color: #FFFFFF !important;
+    background-color: #0E1117 !important;
 }
 [data-testid="stChatMessageContent"] {
+    font-family: 'Noto Sans KR', sans-serif !important;
+    font-size: 16px !important;
+    color: #FFFFFF !important;
+    line-height: 1.7 !important;
+    white-space: pre-wrap !important;
+}
+h1, h2, h3, h4, h5, h6 {
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+}
+.stMarkdown p {
+    color: #FFFFFF !important;
     font-size: 16px !important;
     line-height: 1.7 !important;
 }
+hr {border: none !important; border-top: 1px solid #444 !important;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.7")
+st.title("🛡️ 베리타스 엔진 버전 7.8")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -195,9 +203,11 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 placeholder = st.empty()
                 answer = ""
                 for chunk in response_stream:
-                    answer += chunk.text
-                    placeholder.markdown(answer + "▌")
-                placeholder.markdown(answer)
+                    # === 자동 줄바꿈 처리 (Phase 구문 정리) ===
+                    chunk_text = chunk.text.replace("2-1.", "\n2-1.").replace("2-2.", "\n2-2.").replace("2-3.", "\n2-3.").replace("2-4.", "\n2-4.").replace("2-5.", "\n2-5.").replace("2-6.", "\n2-6.").replace("2-7.", "\n2-7.").replace("2-8.", "\n2-8.")
+                    answer += chunk_text
+                    placeholder.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px; line-height:1.7;'>{answer}▌</div>", unsafe_allow_html=True)
+                placeholder.markdown(f"<div style='white-space:pre-wrap; color:#FFFFFF; font-size:16px; line-height:1.7;'>{answer}</div>", unsafe_allow_html=True)
 
             # ======================================================
             # ✅ Phase-End 판례 자동 후처리 (최종 출력 시)
@@ -223,21 +233,12 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                             f"  - 유사도: {sim*100:.0f}%\n"
                             f"  - 전문 일부: \"{excerpt}...\"\n\n"
                         )
-
                     with st.chat_message("Architect", avatar="🛡️"):
                         st.markdown(
-                            f"<div style='font-family:Noto Sans KR; font-size:16px; line-height:1.7; color:#222;'>{report_md}</div>",
+                            f"<div style='font-family:Noto Sans KR; color:#FFFFFF; font-size:16px; line-height:1.7;'>{report_md}</div>",
                             unsafe_allow_html=True
                         )
                     st.session_state.messages.append({"role": "Architect", "content": report_md})
-
-            # ✅ 법제처 API 후처리
-            if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
-                ids = re.findall(r'\d{6,8}', prompt)
-                for pid in ids[:3]:
-                    with st.spinner(f"법제처 판례 {pid} 호출 중..."):
-                        answer += "\n\n" + show_full_precedent(pid)
-                placeholder.markdown(answer)
 
             st.session_state.messages.append({"role": "Architect", "content": answer})
 
