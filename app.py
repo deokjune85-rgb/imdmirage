@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v8.4 — Gemini Smooth Render Edition
+# 🛡️ Veritas Engine v8.5 — Gradient Edition (Gemini Style)
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,33 +8,53 @@ import requests, re, numpy as np, time
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v8.4", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v8.5", page_icon="🛡️", layout="centered")
 
-# ✅ 스타일: 흰글자 + 동일 폰트 + 한 줄 간격 + 자연스러운 전환
+# ✅ 스타일 통합 — 흰색 텍스트 + 그라데이션 헤더 + 정렬된 리스트
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
+
 html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
     font-size: 16px !important;
     line-height: 1.7 !important;
     color: #FFFFFF !important;
 }
+
 [data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
     background-color: inherit !important;
     border: none !important;
 }
-h1, h2, h3, h4, h5, h6 {
-    color: #FFFFFF !important;
-    font-weight: 700 !important;
-}
+
+/* ✅ 부드러운 텍스트 표시 */
 .lineblock {
     white-space: pre-wrap;
     line-height: 1.7;
     margin-bottom: 4px;
     color: #FFFFFF;
     font-size: 16px;
-    transition: opacity 0.8s ease-in-out; /* ✅ Fade-in 효과 */
+    opacity: 0;
+    animation: fadeIn 0.8s forwards ease-in-out;
+}
+@keyframes fadeIn {
+    from {opacity: 0;}
+    to {opacity: 1;}
+}
+
+/* ✅ 리스트 간격 통제 */
+.option-list div {
+    margin-bottom: 2px !important;
+    line-height: 1.7 !important;
+}
+
+/* ✅ 그라데이션 제목 효과 (Gemini 느낌) */
+.gradient-title {
+    font-size: 22px;
+    font-weight: 800;
+    background: linear-gradient(90deg, #7EE8FA, #EEC0C6, #A993FF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -49,7 +69,7 @@ setInterval(() => {
 </script>
 """, unsafe_allow_html=True)
 
-st.title("🛡️ 베리타스 엔진 버전 8.4")
+st.markdown("<div class='gradient-title'>🛡️ Veritas Engine v8.5 — Gemini Smooth Render Edition</div>", unsafe_allow_html=True)
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -58,7 +78,7 @@ st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에�
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 확인 필요.")
+    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭 확인 필요.")
     st.stop()
 
 genai.configure(api_key=API_KEY)
@@ -142,17 +162,14 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
-            # ✅ 부드러운 전체 렌더링 (타이핑 효과 제거)
+            # ✅ 전체 단위 렌더링 (부드럽게 Fade-in)
             stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 answer = ""
                 for chunk in stream:
                     answer += chunk.text
-                # ✅ Fade-in 효과 적용
-                placeholder.markdown(f"<div class='lineblock' style='opacity:0;'>{answer}</div>", unsafe_allow_html=True)
-                time.sleep(0.1)
-                placeholder.markdown(f"<div class='lineblock' style='opacity:1;'>{answer}</div>", unsafe_allow_html=True)
+                placeholder.markdown(f"<div class='lineblock'>{answer}</div>", unsafe_allow_html=True)
 
             # ✅ 판례 자동 첨부
             docs = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
