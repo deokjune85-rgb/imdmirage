@@ -1,25 +1,36 @@
 import streamlit as st
 import google.generativeai as genai
 import os # 'system_prompt.txt'를 '열기' 위한 '필수' 모듈
-import requests # 네놈이 '요청'한 '용병(API)' 모듈
-import re # 네놈이 '요청'한 '트리거(Trigger)' 모듈
+# ← 여기부터 복붙 시작 (기존 법Tony처 코드 전부 지우고 이걸로 교체)
 
-import streamlit as st
-import google.generativeai as genai
-import os
-import requests  # 이미 있음
-import re       # 이미 있음
+import requests
+import re
 
-# ← 여기 아래에 이거 딱 붙여라 (OC_KEY만 네 키로 바꿔!)
-OC_KEY = "deokjune"  # ← 여기만 "deokjune" → 네 실제 OC 값으로 바꿔!
+# 네 키 고정 (OC_KEY = "deokjune")
+OC_KEY = "deokjune"
+
+def get_precedent_full(prec_id):
+    url = "http://www.law.go.kr/DRF/lawService.do"
+    params = {
+        "OC": OC_KEY,
+        "target": "prec",
+        "ID": prec_id,
+        "type": "JSON"
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if '판례정보' not in data:
+            return {"error": f"API 오류: {data}"}
+        return data
+    except Exception as e:
+        return {"error": f"호출 실패: {e}"}
 
 def show_full_precedent(prec_id):
-    """
-    법제처 판례 전문을 깔끔하게 포맷팅 (이모지 제거 + 안정성 100%)
-    """
     data = get_precedent_full(prec_id)
     if "error" in data:
-        return f"---\n[판례 호출 실패] ID: {prec_id}\n{data['error']}\n---"
+        return f"\n---\n[판례 호출 실패] ID: {prec_id}\n{data['error']}\n---"
     
     try:
         info = data['판례정보']
@@ -32,17 +43,18 @@ def show_full_precedent(prec_id):
 판례 링크: http://www.law.go.kr/precInfo.do?precSeq={prec_id}
 
 판결요지:
-{info.get('판결요지', 'N/A')}
+{info.get('판결요지', 'N/A')[:300]}...
 
 전문 일부 (500자):
-{info.get('판례내용', 'N/A')[:500].replace('\n', ' ')}
+{info.get('판례내용', 'N/A')[:500].replace(chr(10), ' ')}
 
 참조조문:
 {info.get('참조조문', 'N/A')}
 ---
 """
     except Exception as e:
-        return f"---\n[판례 파싱 실패] ID: {prec_id}\n{e}\n---"
+        return f"\n---\n[판례 파싱 실패] ID: {prec_id}\n{e}\n---"
+# ← 여기까지 복붙 끝
 ---
 **법제처 실시간 판례 전문 (ID: {prec_id})**
 
@@ -215,12 +227,17 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 
                 # --- ★★★ 법제처 API 연동 (네놈의 '용병' 코드) ★★★ ---
                           # ← 여기 아래에 딱 이거 교체 (기존 거 지우고 이거 넣어)
+                             response_placeholder.markdown(full_response + "▌")
+                
                 if any(x in prompt.lower() for x in ["판례", "전문", "본문", "판결문", "전체", "id", "아이디"]):
                     ids = re.findall(r'\d{6,8}', prompt)
                     if ids:
-                        with st.spinner(f"법제처에서 판례 {len(ids)}개 실시간 호출 중..."):
+                        with st.spinner(f"법제처에서 판례 {len(ids[:3])}개 실시간 호출 중..."):
                             for pid in ids[:3]:
                                 full_response += "\n\n" + show_full_precedent(pid)
+                
+                response_placeholder.markdown(full_response)  # 딱 한 번만 호출
+                # ← 여기까지 교체 끝
                 # ← 여기까지
                 
                 response_placeholder.markdown(full_response) 
