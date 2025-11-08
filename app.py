@@ -1,9 +1,9 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 v8.6 — 정식 안정화판
+# 🛡️ 베리타스 엔진 v8.7 — Final Stable Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
-import requests, numpy as np, time
+import requests, numpy as np
 
 # ======================================================
 # 1. SYSTEM CONFIG
@@ -21,12 +21,13 @@ html, body, div, span, p {
     line-height: 1.6 !important;
     color: #FFFFFF !important;
 }
+
 [data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
     background-color: inherit !important;
     border: none !important;
 }
 
-/* ✅ 부드러운 Fade-in 효과 */
+/* ✅ 자연스러운 텍스트 표시 (Fade-in 효과) */
 .lineblock {
     white-space: pre-wrap;
     line-height: 1.6;
@@ -41,37 +42,46 @@ html, body, div, span, p {
     to {opacity: 1;}
 }
 
-/* ✅ 리스트 간격 완전 통일 */
+/* ✅ 리스트 줄간격 완전 통일 */
 .option-list {
     line-height: 1.6 !important;
     margin-top: 10px !important;
 }
 .option-list div {
-    margin-bottom: 3px !important;
+    margin-bottom: 2px !important;
 }
 
-/* ✅ 타이틀 스타일 */
+/* ✅ 메인 타이틀 */
 .main-title {
-    font-size: 26px;
-    font-weight: 800;
-    color: #FFFFFF;
-    text-align: center;
-    margin-top: 10px;
+    font-size: 26px !important;
+    font-weight: 800 !important;
+    color: #FFFFFF !important;
+    text-align: center !important;
+    margin-top: 15px !important;
+    margin-bottom: 15px !important;
+}
+
+/* ✅ 자동 스크롤 보조 (채팅 갱신 시) */
+.stChatMessage {
+    scroll-margin-bottom: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ 자동 스크롤
+# ✅ 자동 스크롤 JS (맨 하단 자동 이동)
 st.markdown("""
 <script>
-setInterval(() => {
-  var chat = window.parent.document.querySelector('[data-testid="stVerticalBlock"]');
-  if (chat) chat.scrollTo(0, chat.scrollHeight);
-}, 300);
+const scrollToBottom = () => {
+  var chatContainer = window.parent.document.querySelector('[data-testid="stChatInput"]');
+  if (chatContainer) {
+    chatContainer.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+};
+setInterval(scrollToBottom, 500);
 </script>
 """, unsafe_allow_html=True)
 
-# ✅ 메인 타이틀 (한글 고정)
+# ✅ 메인 타이틀 표시
 st.markdown("<div class='main-title'>🛡️ 베리타스 엔진</div>", unsafe_allow_html=True)
 st.caption("AI 법률 시뮬레이션 시스템 — Confidential Mode")
 
@@ -87,7 +97,20 @@ except KeyError:
 genai.configure(api_key=API_KEY)
 
 # ======================================================
-# 3. 항목 리스트 (한 줄 간격 고정)
+# 3. MODEL INIT
+# ======================================================
+if "model" not in st.session_state:
+    st.session_state.model = genai.GenerativeModel(
+        "gemini-2.5-flash",
+        system_instruction="당신은 법률 AI 시스템 '베리타스 엔진'입니다."
+    )
+
+if "chat" not in st.session_state:
+    st.session_state.chat = st.session_state.model.start_chat(history=[])
+    st.session_state.messages = []
+
+# ======================================================
+# 4. UI — 선택 섹션 예시
 # ======================================================
 with st.chat_message("Architect", avatar="🛡️"):
     st.markdown("""
@@ -103,14 +126,8 @@ with st.chat_message("Architect", avatar="🛡️"):
     """, unsafe_allow_html=True)
 
 # ======================================================
-# 4. 대화 시스템
+# 5. CHAT LOOP
 # ======================================================
-if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel("gemini-2.5-flash", system_instruction="당신은 법률 AI 시스템 '베리타스 엔진'입니다.")
-if "chat" not in st.session_state:
-    st.session_state.chat = st.session_state.model.start_chat(history=[])
-    st.session_state.messages = []
-
 for msg in st.session_state.messages:
     avatar = "👤" if msg["role"] == "user" else "🛡️"
     with st.chat_message(msg["role"], avatar=avatar):
@@ -123,13 +140,13 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("시스템 연산 중..."):
         try:
-            stream = st.session_state.chat.send_message(prompt, stream=True)
+            response_stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
-                answer = ""
-                for chunk in stream:
-                    answer += chunk.text
-                placeholder.markdown(f"<div class='lineblock'>{answer}</div>", unsafe_allow_html=True)
-            st.session_state.messages.append({"role": "Architect", "content": answer})
+                full_text = ""
+                for chunk in response_stream:
+                    full_text += chunk.text
+                placeholder.markdown(f"<div class='lineblock'>{full_text}</div>", unsafe_allow_html=True)
+            st.session_state.messages.append({"role": "Architect", "content": full_text})
         except Exception as e:
             st.error(f"시뮬레이션 오류: {e}")
