@@ -4,6 +4,49 @@ import os # 'system_prompt.txt'를 '열기' 위한 '필수' 모듈
 import requests # 네놈이 '요청'한 '용병(API)' 모듈
 import re # 네놈이 '요청'한 '트리거(Trigger)' 모듈
 
+import streamlit as st
+import google.generativeai as genai
+import os
+import requests  # 이미 있음
+import re       # 이미 있음
+
+# ← 여기 아래에 이거 딱 붙여라 (OC_KEY만 네 키로 바꿔!)
+OC_KEY = "deokjune"  # ← 여기만 "deokjune" → 네 실제 OC 값으로 바꿔!
+
+def get_precedent_full(prec_id):
+    url = "http://www.law.go.kr/DRF/lawService.do"
+    params = {
+        "OC": OC_KEY,
+        "target": "prec",
+        "ID": prec_id,
+        "type": "JSON"
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except:
+        return {"error": "API 호출 실패"}
+
+def show_full_precedent(prec_id):
+    data = get_precedent_full(prec_id)
+    if "error" in data:
+        return f"---\n**[판례 호출 실패]** ID: {prec_id}\n{data['error']}\n---"
+    try:
+        info = data['판례정보']
+        return f"""
+---
+**법제처 실시간 판례 전문 (ID: {prec_id})**
+
+**사건명**: {info.get('사건명', 'N/A')}
+**선고**: {info.get('선고', 'N/A')} | **법원**: {info.get('법원명', 'N/A')}
+**판례 바로가기**: [법제처 링크](http://www.law.go.kr/precInfo.do?precSeq={prec_id})
+
+**판결요지**  
+{info.get('판결요지', 'N/A')}
+
+**전문 일부 (500자)**  
+
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
 st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
 
