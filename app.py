@@ -13,28 +13,36 @@ import re       # 이미 있음
 # ← 여기 아래에 이거 딱 붙여라 (OC_KEY만 네 키로 바꿔!)
 OC_KEY = "deokjune"  # ← 여기만 "deokjune" → 네 실제 OC 값으로 바꿔!
 
-def get_precedent_full(prec_id):
-    url = "http://www.law.go.kr/DRF/lawService.do"
-    params = {
-        "OC": OC_KEY,
-        "target": "prec",
-        "ID": prec_id,
-        "type": "JSON"
-    }
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return {"error": "API 호출 실패"}
-
 def show_full_precedent(prec_id):
+    """
+    법제처 판례 전문을 깔끔하게 포맷팅 (이모지 제거 + 안정성 100%)
+    """
     data = get_precedent_full(prec_id)
     if "error" in data:
-        return f"---\n**[판례 호출 실패]** ID: {prec_id}\n{data['error']}\n---"
+        return f"---\n[판례 호출 실패] ID: {prec_id}\n{data['error']}\n---"
+    
     try:
         info = data['판례정보']
         return f"""
+---
+[판례 전문 전체 - 법제처 실시간 호출]
+
+사건명: {info.get('사건명', 'N/A')}
+선고: {info.get('선고', 'N/A')} | 법원: {info.get('법원명', 'N/A')}
+판례 링크: http://www.law.go.kr/precInfo.do?precSeq={prec_id}
+
+판결요지:
+{info.get('판결요지', 'N/A')}
+
+전문 일부 (500자):
+{info.get('판례내용', 'N/A')[:500].replace('\n', ' ')}
+
+참조조문:
+{info.get('참조조문', 'N/A')}
+---
+"""
+    except Exception as e:
+        return f"---\n[판례 파싱 실패] ID: {prec_id}\n{e}\n---"
 ---
 **법제처 실시간 판례 전문 (ID: {prec_id})**
 
@@ -206,13 +214,14 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     response_placeholder.markdown(full_response + "▌") # 타이핑 효과
                 
                 # --- ★★★ 법제처 API 연동 (네놈의 '용병' 코드) ★★★ ---
-                if any(x in prompt.lower() for x in ["판례", "전문", "본문", "판결문", "전체", "아이디"]):
-                    ids = re.findall(r'\d{6,8}', prompt) # 6~8자리 숫자를 'ID'로 '간주'
+                          # ← 여기 아래에 딱 이거 교체 (기존 거 지우고 이거 넣어)
+                if any(x in prompt.lower() for x in ["판례", "전문", "본문", "판결문", "전체", "id", "아이디"]):
+                    ids = re.findall(r'\d{6,8}', prompt)
                     if ids:
-                        with st.spinner(f"법제처 API 호출... 판례 ID {', '.join(ids)} '실시간 약탈' 중..."):
-                            for pid in ids[:3]:  # 최대 3개 '약탈'
-                                precedent_text = show_full_precedent(pid)
-                                full_response += "\n\n" + precedent_text
+                        with st.spinner(f"법제처에서 판례 {len(ids)}개 실시간 호출 중..."):
+                            for pid in ids[:3]:
+                                full_response += "\n\n" + show_full_precedent(pid)
+                # ← 여기까지
                 
                 response_placeholder.markdown(full_response) 
             
