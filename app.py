@@ -1,14 +1,19 @@
+# ======================================================
+# 🛡️ Veritas Engine v7.1 (Stabilized Build)
+# ======================================================
 import streamlit as st
 import google.generativeai as genai
-import os 
-import requests 
-import re 
-import numpy as np 
+import os
+import requests
+import re
+import numpy as np
 
-# --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
-st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
+# ======================================================
+# 1. SYSTEM INIT (Vault Mode)
+# ======================================================
+st.set_page_config(page_title="베리타스 엔진 7.1", page_icon="🛡️", layout="centered")
 
-hide_streamlit_style = """
+hide_ui = """
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
@@ -16,111 +21,116 @@ header {visibility: hidden;}
 .stDeployButton {visibility: hidden;}
 </style>
 """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(hide_ui, unsafe_allow_html=True)
 
-# --- 2. 타이틀 및 경고 ---
-st.title("베리타스 엔진 버전 7.0")
-st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
+st.title("🧠 베리타스 엔진 v7.1")
+st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 외부 유출 금지.")
 
-# --- 3. API 키 및 모델 설정 ---
-
+# ======================================================
+# 2. API KEY SETUP
+# ======================================================
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' '약탈' 실패. 'Secrets'를 '확인'하라.")
+    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭을 확인하라.")
     st.stop()
 
 genai.configure(api_key=API_KEY)
 
-# --- '탄약고 B': 법제처 API (자판기) ---
 try:
     OC_KEY = st.secrets["LAW_API_KEY"]
 except KeyError:
-    OC_KEY = "DEOKJUNE_FALLBACK"
+    OC_KEY = "DEOKJUNE"
 
+# ======================================================
+# 3. LAW.GO.KR API HANDLER
+# ======================================================
 def get_precedent_full(prec_id):
-    if OC_KEY == "DEOKJUNE_FALLBACK":
-        return {"error": "[치명적 오류]: 'LAW_API_KEY' '약탈' 실패. [st.secrets]를 '확인'하라."}
+    """법제처 API에서 판례 전문을 가져온다."""
+    if not OC_KEY or OC_KEY == "DEOKJUNE_FALLBACK":
+        return {"error": "LAW_API_KEY 누락"}
     url = "http://www.law.go.kr/DRF/lawService.do"
     params = {"OC": OC_KEY, "target": "prec", "ID": prec_id, "type": "JSON"}
     try:
         r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status() 
+        r.raise_for_status()
         data = r.json()
         if '판례정보' not in data:
-             return {"error": f"법제처 API 오류: {data.get('Error', '알 수 없는 응답')}"}
+            return {"error": f"API 응답 오류: {data}"}
         return data
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": f"API 호출 실패: {e}"}
 
+
 def show_full_precedent(prec_id):
+    """판례 전문 표시 포맷."""
     data = get_precedent_full(prec_id)
     if "error" in data:
-        return f"--- \n**[API 분석 실패]** (ID: {prec_id})\n{data['error']}\n---"
+        return f"**[API 오류]** (ID: {prec_id}) → {data['error']}"
     try:
         info = data.get('판례정보', {})
-        if not info:
-             return f"--- \n**[API 분석 실패]** (ID: {prec_id})\n'판례정보' 필드를 '데이터'에서 '식별'할 수 없음.\n---"
-        prec_id_display = info.get('판례일련번호', prec_id)
         title = info.get('사건명', 'N/A')
         verdict_date = info.get('선고일자', 'N/A')
-        court_name = info.get('법원명', 'N/A')
-        summary = info.get('판결요지', 'N/A').replace(chr(10), ' ') 
-        full_text = info.get('판례내용', 'N/A')[:500].replace(chr(10), ' ')
-        ref_law = info.get('참조조문', 'N/A').replace(chr(10), ' ')
+        court = info.get('법원명', 'N/A')
+        summary = info.get('판결요지', 'N/A').replace('\n', ' ')
+        content = info.get('판례내용', 'N/A')[:500].replace('\n', ' ')
+        ref = info.get('참조조문', 'N/A')
         return f"""
 ---
-**🔍 판례 전문 전체 (법제처 실시간 호출)**
-**사건명**: {title}
-**선고**: {verdict_date} | **법원**: {court_name}
-**판례 링크**: [법제처 바로가기](http://www.law.go.kr/precInfo.do?precSeq={prec_id_display})
-**판결요지**: {summary}
-**전문 일부 (500자)**: {full_text}...
-**참조조문**: {ref_law}
+**🔍 판례 전문 전체**
+- 사건명: {title}
+- 선고일자: {verdict_date}
+- 법원: {court}
+- [법제처 바로가기](http://www.law.go.kr/precInfo.do?precSeq={prec_id})
+**요지**: {summary}
+**본문 (500자)**: {content}...
+**참조조문**: {ref}
 ---
 """
     except Exception as e:
-        return f"--- \n**[API 분석 실패]** (ID: {prec_id})\n'데이터' '가공' 중 '치명적 오류' 발생: {e}\n---"
-# --- (법제처 API 종료) ---
+        return f"[데이터 처리 오류]: {e}"
 
-
-# --- ★★★ '탄약고 A': 게릴라 RAG (트로이 목마) ★★★ ---
-EMBEDDING_MODEL_NAME = "models/text-embedding-004" 
+# ======================================================
+# 4. EMBEDDING ENGINE (게릴라 RAG)
+# ======================================================
+EMBED_MODEL = "models/text-embedding-004"
 
 def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
     try:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL_NAME,
-            content=text,
-            task_type=task_type)
-        return result['embedding']
+        res = genai.embed_content(model=EMBED_MODEL, content=text, task_type=task_type)
+        return res['embedding']
     except Exception as e:
-        st.error(f"임베딩 '오류' (모델 '호출' '실패'): {e}")
+        st.error(f"임베딩 실패: {e}")
         return None
 
+
 @st.cache_data(show_spinner=False)
-def load_and_embed_precedents(file_path): 
-    """'txt' '쓰레기'를 '읽어' '벡터' '탄약'으로 '주조'한다."""
+def load_and_embed_precedents(file_path):
+    """GitHub RAW 또는 로컬 txt 파일을 읽어 임베딩한다."""
     try:
-        # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
-        # 'os.path' '쓰레기'를 '폐기'하고, '네놈'의 '오리지널' '경로'로 '복귀'한다.
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # 🔹 RAW 경로 자동 판별
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            st.info(f"GitHub RAW 경로 감지 ✅\n{file_path}")
+            r = requests.get(file_path, timeout=10)
+            if r.status_code != 200:
+                raise FileNotFoundError(f"HTTP 응답 {r.status_code}")
+            content = r.text
+        else:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
     except FileNotFoundError:
-        st.warning(f"경고: '탄약고({file_path})' '발견' '실패'. '게릴라 RAG'가 '작동'하지 '않는다'. 'GitHub'에 '파일' '업로드' '확인'하라.")
+        st.warning(f"⚠️ 탄약고({file_path})를 찾지 못했습니다. GitHub 업로드를 확인하세요.")
         return [], np.array([])
     except Exception as e:
-        st.error(f"'탄약고' '로드' '실패': {e}")
+        st.error(f"탄약고 로드 실패: {e}")
         return [], np.array([])
 
-    precedents = content.split('---END OF PRECEDENT---')
-    precedents = [p.strip() for p in precedents if p.strip()]
-    
+    precedents = [p.strip() for p in content.split('---END OF PRECEDENT---') if p.strip()]
     if not precedents:
-        st.warning(f"경고: '탄약고({file_path})'가 '비어'있다. '사기극' '실패'.")
+        st.warning(f"⚠️ 탄약고({file_path})가 비어 있습니다.")
         return [], np.array([])
 
-    st.success(f"'{file_path}' '탄약고' '장전' '완료'. '총알(판례)' {len(precedents)}개 '확인'.")
+    st.success(f"✅ 탄약고 장전 완료! 판례 {len(precedents)}개 확보.")
     embeddings = []
     valid_precedents = []
     for p in precedents:
@@ -128,121 +138,83 @@ def load_and_embed_precedents(file_path):
         if emb:
             embeddings.append(emb)
             valid_precedents.append(p)
-    
     return valid_precedents, np.array(embeddings)
 
-def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
-    """'사건'과 '가장' '유사한' '총알' 3개를 '발사'한다."""
+
+def find_similar_precedents(query, precedents, embeddings, top_k=3):
+    """입력 쿼리와 유사한 판례 반환"""
     if embeddings.size == 0:
-        return "" 
-
-    query_embedding = embed_text(query_text, task_type="RETRIEVAL_QUERY")
-    if query_embedding is None:
         return ""
-
-    similarities = np.dot(embeddings, query_embedding)
-    
-    top_k_indices = np.argsort(similarities)[-top_k:][::-1]
-    
-    context = "\n\n[시스템 참조: '게릴라 RAG'가 '탄약고(txt)'에서 '유사 판례' '탐지' '완료']\n"
-    for i in top_k_indices:
-        if similarities[i] > 0.7: 
-            context += f"--- (유사도: {similarities[i]*100:.0f}%)\n{precedents[i]}\n---\n"
-            
+    q_emb = embed_text(query, task_type="RETRIEVAL_QUERY")
+    if q_emb is None:
+        return ""
+    sims = np.dot(embeddings, q_emb)
+    top = np.argsort(sims)[-top_k:][::-1]
+    context = "\n\n[참조: 게릴라 RAG 유사 판례 탐색 결과]\n"
+    for i in top:
+        if sims[i] > 0.7:
+            context += f"--- (유사도 {sims[i]*100:.0f}%)\n{precedents[i][:800]}...\n"
     return context
-# --- ★★★ 게릴라 RAG 이식 종료 ★★★ ---
 
-
-# --- '뇌(EPE)'와 '탄약고' '로딩' ---
+# ======================================================
+# 5. SYSTEM PROMPT + 모델 초기화
+# ======================================================
 try:
-    # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
-    # 'os.path' '쓰레기' '폐기'. '네놈'의 '오리지널' '경로' '복귀'.
     with open("system_prompt.txt", "r", encoding="utf-8") as f:
-        SYSTEM_INSTRUCTION = f.read()
-except FileNotFoundError:
-    st.error("'system_prompt.txt' 파일을 '약탈'하는 데 '실패'했다, 이 머저리야. '파일'을 '업로드'해.")
-    st.stop()
-except Exception as e:
-    st.error(f"시스템 프롬프트 로드 '실패': {e}")
-    st.stop()
+        SYSTEM_PROMPT = f.read()
+except Exception:
+    SYSTEM_PROMPT = "당신은 법률 AI 시스템 '베리타스 엔진'입니다."
 
-# '탄약고 A(RAG)' '장전' (앱 '시작' 시 '1회' '실행')
 if "precedents" not in st.session_state:
-    # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
-    # 'os.path' '쓰레기' '폐기'. '단순' '경로' '사용'.
     RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
-st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents(RAW_URL)
-
+    st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents(RAW_URL)
 
 if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel(
-        "gemini-2.5-flash", 
-        system_instruction=SYSTEM_INSTRUCTION
-    )
-
-# --- 4. 대화 세션 관리 및 자동 시작 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=SYSTEM_PROMPT)
 
 if "chat" not in st.session_state:
     st.session_state.chat = st.session_state.model.start_chat(history=[])
-    
-    initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
-    try:
-        response = st.session_state.chat.send_message(initial_prompt)
-        st.session_state.messages.append({"role": "Architect", "content": response.text})
-    except Exception as e:
-        st.error(f"시스템 초기화 실패: {e}")
+    st.session_state.messages = []
 
-# 이전 대화 기록 표시
-for message in st.session_state.messages:
-    role_name = "Client" if message["role"] == "user" else "Architect"
-    avatar = "👤" if message["role"] == "user" else "🛡️"
-    with st.chat_message(role_name, avatar=avatar):
-        st.markdown(message["content"])
+# ======================================================
+# 6. UI (대화 인터페이스)
+# ======================================================
+for msg in st.session_state.messages:
+    role = "Client" if msg["role"] == "user" else "Architect"
+    avatar = "👤" if msg["role"] == "user" else "🛡️"
+    with st.chat_message(role, avatar=avatar):
+        st.markdown(msg["content"])
 
-# --- 5. 사용자 입력 및 응답 생성 (★궁극의 융합 교리★) ---
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(prompt)
 
-    with st.spinner("Architect 시스템 연산 중..."):
+    with st.spinner("Architect 연산 중..."):
         try:
-            # --- ★ 1. '게릴라 RAG' '선제' '발사' ★ ---
-            with st.spinner("'탄약고 A(txt)'에서 '유사 판례' '탐색' 중..."):
-                rag_context = find_similar_precedents(
-                    prompt, 
-                    st.session_state.precedents, 
-                    st.session_state.embeddings
-                )
-            
-            final_prompt_to_epe = prompt + rag_context
+            # 🔹 RAG 검색
+            rag_context = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
+            full_prompt = prompt + rag_context
 
-            # --- ★ 2. '뇌(EPE)' '작동' ★ ---
-            response_stream = st.session_state.chat.send_message(final_prompt_to_epe, stream=True)
-            
+            # 🔹 생성 모델 호출
+            response_stream = st.session_state.chat.send_message(full_prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
-                response_placeholder = st.empty()
-                full_response = ""
+                placeholder = st.empty()
+                answer = ""
                 for chunk in response_stream:
-                    full_response += chunk.text
-                    response_placeholder.markdown(full_response + "▌") 
-                
-                # --- ★ 3. '자판기(API)' '후처리' ★ ---
-                if any(x in prompt.lower() for x in ["판례", "전문", "본문", "판결문", "전체", "아이디"]):
-                    ids = re.findall(r'\d{6,8}', prompt) 
-                    if ids:
-                        with st.spinner(f"법제처 API 호출... 판례 ID {', '.join(ids)} '실시간 약탈' 중..."):
-                            for pid in ids[:3]:
-                                precedent_text = show_full_precedent(pid)
-                                full_response += "\n\n" + precedent_text
-                
-                response_placeholder.markdown(full_response) 
-            
-            st.session_state.messages.append({"role": "Architect", "content": full_response})
-        
+                    answer += chunk.text
+                    placeholder.markdown(answer + "▌")
+                placeholder.markdown(answer)
+
+            # 🔹 법제처 API 판례 호출 자동 후처리
+            if any(x in prompt for x in ["판례", "전문", "ID", "본문"]):
+                ids = re.findall(r'\d{6,8}', prompt)
+                for pid in ids[:3]:
+                    with st.spinner(f"법제처 판례 {pid} 호출 중..."):
+                        answer += "\n\n" + show_full_precedent(pid)
+                placeholder.markdown(answer)
+
+            st.session_state.messages.append({"role": "Architect", "content": answer})
+
         except Exception as e:
-            error_msg = f"시뮬레이션 오류 발생: {e}"
-            st.error(error_msg)
-            st.session_state.messages.append({"role": "Architect", "content": error_msg})
+            st.error(f"시뮬레이션 오류: {e}")
