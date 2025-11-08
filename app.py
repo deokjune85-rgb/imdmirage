@@ -1,16 +1,15 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 v9.5 — Operational Boot Restoration
+# 🛡️ 베리타스 엔진 v10.0 — Phase Protocol Reinforced Build
 # ======================================================
 import streamlit as st
-import google.generativeai as genai
-import numpy as np
+import time
 
 # ======================================================
-# 1. 시스템 설정
+# 1. SYSTEM INIT
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 9.5", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 10.0", page_icon="🛡️", layout="centered")
 
-# 기본 스타일 (v7.0 감성 + 시각 통일)
+# CSS 통일
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
@@ -18,23 +17,21 @@ html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
     color: #FFFFFF !important;
     font-size: 17px !important;
-    line-height: 1.6 !important;
-}
-[data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
-    background-color: inherit !important;
-    border: none !important;
+    line-height: 1.7 !important;
 }
 h1 {
     text-align: left !important;
     font-weight: 900 !important;
     font-size: 34px !important;
+    margin-top: 10px !important;
+    margin-bottom: 15px !important;
     color: #FFFFFF !important;
-    margin-top: 5px !important;
 }
 .lineblock {
     white-space: pre-wrap;
+    margin-bottom: 5px;
     opacity: 0;
-    animation: fadeIn 0.6s forwards ease-in-out;
+    animation: fadeIn 0.5s forwards ease-in-out;
 }
 @keyframes fadeIn {
     from {opacity: 0;}
@@ -50,74 +47,88 @@ const scrollToBottom = () => {
   var chat = window.parent.document.querySelector('[data-testid="stVerticalBlock"]');
   if (chat) chat.scrollTo(0, chat.scrollHeight);
 };
-setInterval(scrollToBottom, 400);
+setInterval(scrollToBottom, 300);
 </script>
 """, unsafe_allow_html=True)
 
 # ======================================================
-# 2. 타이틀 및 경고
+# 2. UI TITLE
 # ======================================================
-st.title("베리타스 엔진 버전 9.5")
+st.title("베리타스 엔진 버전 10.0")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
-# 3. API 설정
+# 3. PHASE CONTROL
 # ======================================================
-try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
-except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭 확인 필요.")
-    st.stop()
+if "phase" not in st.session_state:
+    st.session_state.phase = "0"
 
-genai.configure(api_key=API_KEY)
+def show_phase_0():
+    st.markdown("""
+**시스템 초기화: 시뮬레이션 도메인 선택.**
+
+분석을 진행할 사건의 법률/재무/의료 분야를 선택하십시오.
+
+1. 이혼 및 가사법 (Divorce/Family Law)  
+2. 형사 변호 (Criminal Defense)  
+3. 파산 및 회생 (Bankruptcy/Insolvency)  
+4. 지적 재산권 (IP/Patent)  
+5. 의료 소송 (Medical Malpractice)  
+6. 세무 및 회계 (Tax/Accounting)  
+7. 행정 소송 (Administrative Law)
+
+번호 또는 원하시는 분야를 입력하십시오.
+""")
+
+def show_phase_05():
+    st.markdown("""
+**Phase 0.5: 형사 세부 분야 선택.**
+
+2-1. 마약 (투약/소지/매매/알선)  
+2-2. 성범죄 및 스토킹  
+2-3. 음주운전  
+2-4. 도박 (사이버/오프라인)  
+2-5. 금융/경제 범죄 (자본시장법, 사기/횡령/배임, 특금법)  
+2-6. 명예훼손 및 정보통신망법 위반  
+2-7. 유사수신  
+2-8. 기타 일반 형사 (폭행 등)
+""")
+
+def show_phase_1():
+    st.markdown("""
+**Phase 1: 핵심 변수 입력.**
+
+1/6. 현재 문제가 된 '혐의 내용'은 무엇입니까?  
+(예: 유사수신행위법 위반 및 특경법 사기)
+""")
 
 # ======================================================
-# 4. 모델 초기화
+# 4. PHASE FLOW
 # ======================================================
-if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction="당신은 법률 AI 시스템 '베리타스 엔진'입니다."
-    )
+if st.session_state.phase == "0":
+    show_phase_0()
 
-if "chat" not in st.session_state:
-    st.session_state.chat = st.session_state.model.start_chat(history=[])
-    st.session_state.messages = []
+elif st.session_state.phase == "0.5":
+    show_phase_05()
 
-    # ✅ 시스템 자동 부팅 메시지 (Phase 0)
-    st.session_state.messages.append({
-        "role": "Architect",
-        "content": "시스템 초기화: 시뮬레이션 도메인 선택.\n\n분석을 진행할 사건의 법률/재무/의료 분야를 선택하십시오.\n\n1. 이혼 및 가사법 (Divorce/Family Law)\n2. 형사 변호 (Criminal Defense)\n3. 파산 및 회생 (Bankruptcy/Insolvency)\n4. 지적 재산권 (IP/Patent)\n5. 의료 소송 (Medical Malpractice)\n6. 세무 및 회계 (Tax/Accounting)\n7. 행정 소송 (Administrative Law)\n\n번호 또는 원하시는 분야를 입력하십시오."
-    })
+elif st.session_state.phase == "1":
+    show_phase_1()
 
 # ======================================================
-# 5. 출력 루프
+# 5. USER INPUT (STRICT CONTROL)
 # ======================================================
-for msg in st.session_state.messages:
-    role = "Client" if msg["role"] == "user" else "Architect"
-    avatar = "👤" if msg["role"] == "user" else "🛡️"
-    with st.chat_message(role, avatar=avatar):
-        st.markdown(f"<div class='lineblock'>{msg['content']}</div>", unsafe_allow_html=True)
-
-# ======================================================
-# 6. 입력 및 응답
-# ======================================================
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    with st.chat_message("Client", avatar="👤"):
-        st.markdown(f"<div class='lineblock'>{prompt}</div>", unsafe_allow_html=True)
-
-    with st.spinner("Architect 시스템 연산 중..."):
-        try:
-            stream = st.session_state.chat.send_message(prompt, stream=True)
-            with st.chat_message("Architect", avatar="🛡️"):
-                placeholder = st.empty()
-                answer = ""
-                for chunk in stream:
-                    answer += chunk.text
-                    placeholder.markdown(f"<div class='lineblock'>{answer}</div>", unsafe_allow_html=True)
-                placeholder.markdown(f"<div class='lineblock'>{answer}</div>", unsafe_allow_html=True)
-            st.session_state.messages.append({"role": "Architect", "content": answer})
-        except Exception as e:
-            st.error(f"시뮬레이션 오류: {e}")
+if user_input := st.chat_input("시뮬레이션 변수를 입력하십시오."):
+    if st.session_state.phase == "0":
+        if user_input.strip() == "2":
+            st.session_state.phase = "0.5"
+            st.rerun()
+        else:
+            st.warning("올바른 도메인 번호를 입력하십시오. (예: 2)")
+    elif st.session_state.phase == "0.5":
+        st.session_state.phase = "1"
+        st.rerun()
+    elif st.session_state.phase == "1":
+        st.success("Phase 1 입력 완료. 다음 단계로 진행 중...")
+        time.sleep(1)
+        st.session_state.phase = "2"
+        st.rerun()
