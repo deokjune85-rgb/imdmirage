@@ -1,16 +1,16 @@
 # ======================================================
-# 🛡️ Veritas Engine v8.3 — Cinematic UX Edition
+# 🛡️ Veritas Engine v8.4 — Gemini Smooth Render Edition
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
-import requests, re, numpy as np, time, random
+import requests, re, numpy as np, time
 
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v8.3", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v8.4", page_icon="🛡️", layout="centered")
 
-# ✅ 전역 스타일 통일 (흰글씨, 동일 폰트, 한줄 간격)
+# ✅ 스타일: 흰글자 + 동일 폰트 + 한 줄 간격 + 자연스러운 전환
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
@@ -28,13 +28,13 @@ h1, h2, h3, h4, h5, h6 {
     color: #FFFFFF !important;
     font-weight: 700 !important;
 }
-/* ✅ 줄바꿈 간격 통일 */
 .lineblock {
     white-space: pre-wrap;
     line-height: 1.7;
     margin-bottom: 4px;
     color: #FFFFFF;
     font-size: 16px;
+    transition: opacity 0.8s ease-in-out; /* ✅ Fade-in 효과 */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -49,7 +49,7 @@ setInterval(() => {
 </script>
 """, unsafe_allow_html=True)
 
-st.title("🛡️ 베리타스 엔진 버전 8.3")
+st.title("🛡️ 베리타스 엔진 버전 8.4")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -58,7 +58,7 @@ st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에�
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
-    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 탭 확인 필요.")
+    st.error("시스템 오류: 'GOOGLE_API_KEY' 누락. [Secrets] 확인 필요.")
     st.stop()
 
 genai.configure(api_key=API_KEY)
@@ -142,19 +142,19 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
     with st.spinner("Architect 시스템 연산 중..."):
         try:
+            # ✅ 부드러운 전체 렌더링 (타이핑 효과 제거)
             stream = st.session_state.chat.send_message(prompt, stream=True)
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 answer = ""
                 for chunk in stream:
-                    # ✅ 부드러운 타이핑 효과 (GPT 스타일)
-                    for c in chunk.text:
-                        answer += c
-                        placeholder.markdown(f"<div class='lineblock'>{answer}▌</div>", unsafe_allow_html=True)
-                        time.sleep(random.uniform(0.007, 0.012))
-                placeholder.markdown(f"<div class='lineblock'>{answer}</div>", unsafe_allow_html=True)
+                    answer += chunk.text
+                # ✅ Fade-in 효과 적용
+                placeholder.markdown(f"<div class='lineblock' style='opacity:0;'>{answer}</div>", unsafe_allow_html=True)
+                time.sleep(0.1)
+                placeholder.markdown(f"<div class='lineblock' style='opacity:1;'>{answer}</div>", unsafe_allow_html=True)
 
-            # ✅ 판례 자동 첨부 (최종 5개)
+            # ✅ 판례 자동 첨부
             docs = find_similar_precedents(prompt, st.session_state.precedents, st.session_state.embeddings)
             if docs:
                 report = "### 🧾 실시간 판례 전문 분석 (자동)\n\n"
