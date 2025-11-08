@@ -5,28 +5,6 @@ import requests
 import re 
 import numpy as np 
 
-# app.py 맨 위에 추가 (이거만 바꿔!)
-PRECEDENTS_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
-
-def load_precedents():
-    try:
-        response = requests.get(PRECEDENTS_URL)
-        response.raise_for_status()
-        text = response.text
-        return [p.strip() for p in text.split("---END OF PRECEDENT---") if p.strip()]
-    except:
-        return ["[임시 판례] 정당방위 무죄"]
-
-# --- ★★★ '환경' '결함' '수정' (v4.2) ★★★ ---
-# 'app.py' '파일' '자신'의 '절대 경로'를 '기준'으로 '삼는다'.
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# '탄약고'의 '절대 경로'를 '강제'로 '지정'한다.
-PRECEDENTS_FILE_PATH = os.path.join(BASE_DIR, 'precedents_data.txt')
-# '뇌(EPE)'의 '절대 경로'를 '강제'로 '지정'한다.
-SYSTEM_PROMPT_FILE_PATH = os.path.join(BASE_DIR, 'system_prompt.txt')
-# --- ★★★ 수정 종료 ★★★ ---
-
-
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
 st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
 
@@ -121,15 +99,15 @@ def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
         return None
 
 @st.cache_data(show_spinner=False)
-def load_and_embed_precedents(file_path): # 'file_path'를 '인자'로 '받는다'.
+def load_and_embed_precedents(file_path): 
     """'txt' '쓰레기'를 '읽어' '벡터' '탄약'으로 '주조'한다."""
     try:
-        # --- ★★★ '오류' '수정' (v4.2) ★★★ ---
-        # 'file_path' '변수'를 '사용'하여 '절대 경로'로 '파일'을 '연다'.
+        # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
+        # 'os.path' '쓰레기'를 '폐기'하고, '네놈'의 '오리지널' '경로'로 '복귀'한다.
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        st.warning(f"경고: '탄약고({file_path})' '발견' '실패'. '게릴라 RAG'가 '작동'하지 '않는다'. '파일'이 '정확한' '위치'에 '있는지' '확인'하라.")
+        st.warning(f"경고: '탄약고({file_path})' '발견' '실패'. '게릴라 RAG'가 '작동'하지 '않는다'. 'GitHub'에 '파일' '업로드' '확인'하라.")
         return [], np.array([])
     except Exception as e:
         st.error(f"'탄약고' '로드' '실패': {e}")
@@ -142,7 +120,7 @@ def load_and_embed_precedents(file_path): # 'file_path'를 '인자'로 '받는�
         st.warning(f"경고: '탄약고({file_path})'가 '비어'있다. '사기극' '실패'.")
         return [], np.array([])
 
-    st.success(f"'{file_path.split('/')[-1]}' '탄약고' '장전' '완료'. '총알(판례)' {len(precedents)}개 '확인'.")
+    st.success(f"'{file_path}' '탄약고' '장전' '완료'. '총알(판례)' {len(precedents)}개 '확인'.")
     embeddings = []
     valid_precedents = []
     for p in precedents:
@@ -177,12 +155,12 @@ def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
 
 # --- '뇌(EPE)'와 '탄약고' '로딩' ---
 try:
-    # --- ★★★ '오류' '수정' (v4.2) ★★★ ---
-    # '절대 경로'로 'system_prompt.txt'를 '로드'한다.
-    with open(SYSTEM_PROMPT_FILE_PATH, "r", encoding="utf-8") as f:
+    # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
+    # 'os.path' '쓰레기' '폐기'. '네놈'의 '오리지널' '경로' '복귀'.
+    with open("system_prompt.txt", "r", encoding="utf-8") as f:
         SYSTEM_INSTRUCTION = f.read()
 except FileNotFoundError:
-    st.error(f"'뇌({SYSTEM_PROMPT_FILE_PATH.split('/')[-1]})' '약탈' '실패'. '파일'을 '업로드'해.")
+    st.error("'system_prompt.txt' 파일을 '약탈'하는 데 '실패'했다, 이 머저리야. '파일'을 '업로드'해.")
     st.stop()
 except Exception as e:
     st.error(f"시스템 프롬프트 로드 '실패': {e}")
@@ -190,9 +168,9 @@ except Exception as e:
 
 # '탄약고 A(RAG)' '장전' (앱 '시작' 시 '1회' '실행')
 if "precedents" not in st.session_state:
-    # --- ★★★ '오류' '수정' (v4.2) ★★★ ---
-    # '절대 경로'를 '인자'로 '전달'한다.
-    st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents(PRECEDENTS_FILE_PATH)
+    # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
+    # 'os.path' '쓰레기' '폐기'. '단순' '경로' '사용'.
+    st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents("precedents_data.txt")
 
 if "model" not in st.session_state:
     st.session_state.model = genai.GenerativeModel(
