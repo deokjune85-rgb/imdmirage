@@ -19,47 +19,7 @@ st.title("베리타스 엔진 버전 7.0")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # --- 3. API 키 및 모델 설정 ---
-import streamlit as st
-import requests
-import random
 
-# ← 여기 아래에 복붙 시작
-OC_KEY = "deokjune"  # 네 키
-
-def get_precedent_full(prec_id):
-    url = "http://www.law.go.kr/DRF/lawService.do"
-    params = {
-        "OC": OC_KEY,
-        "target": "prec",
-        "ID": prec_id,
-        "type": "JSON"
-    }
-    r = requests.get(url, params=params)
-    return r.json()
-
-def generate_precedent_section(user_case, prec_ids=[2589741, 2478912, 2356789]):
-    section = f"## 국세청 공격 방어 시뮬레이션 (법제처 판례全文 실시간)\n"
-    section += f"* 검색 쿼리: `{user_case}`\n\n"
-    for pid in prec_ids:
-        data = get_precedent_full(pid)
-        info = data['판례정보']
-        section += f"""
-* **판례 [{info['사건명'][:25]}...](http://www.law.go.kr/precInfo.do?precSeq={pid})**
-  - 선고: {info['선고']} | {info['법원명']}
-  - 유사도: **{random.randint(91, 98)}%**
-  - 판결요지: {info['판결요지'][:150]}...
-  - **전문 일부**:
-    > `{info['판례내용'][:380].replace('\n', ' ')}...`
-  - 참조조문: {info['참조조문']}
-"""
-    return section
-# ← 여기까지 복붙 끝
-
-# 네가 쓰는 입력 폼 아래에 이거 추가
-user_input = st.text_input("국세청이 의심하는 쟁점 입력 (예: 가지급금 8400억)")
-if st.button("방어 전략 생성"):
-    report = generate_precedent_section(user_input)
-    st.markdown(report)
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except KeyError:
