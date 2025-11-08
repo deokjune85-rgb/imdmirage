@@ -183,7 +183,7 @@ SYSTEM_INSTRUCTION = """
 
     ```
 
-## Phase 0.5: 형사 하위 도메인 선택 프로토콜 (Criminal Sub-Domain Selection) (★신설★)
+## Phase 0.5: 형사 하위 도메인 선택 프로토콜 (Criminal Sub-Domain Selection) (★수정됨★)
 [AI 실행 지침: 사용자가 Phase 0에서 '2'를 입력했을 경우에만 실행된다.]
 
 * **AI 출력:**
@@ -208,6 +208,7 @@ SYSTEM_INSTRUCTION = """
 
     2-7. 기타 일반 형사 (폭행 등)
     ---
+
     세부 번호를 입력하십시오. (예: 2-1)
     ```
 
