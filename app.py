@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.4 — Phase-End RAG Final Build
+# 🛡️ Veritas Engine v7.5 — Phase-End Smart Trigger Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,7 +8,7 @@ import requests, re, os, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v7.4", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.5", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
@@ -16,7 +16,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.4")
+st.title("베리타스 엔진 버전 7.5")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -185,7 +185,10 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 placeholder.markdown(answer)
 
             # ✅ 판례 분석은 '최종 결과' 시점에서만 출력
-            if any(kw in answer for kw in ["보고서", "결과", "완료"]):
+            if (
+                any(kw in answer for kw in ["최종", "보고서", "브리핑", "결과 요약"])
+                and not any(kw in answer for kw in ["입력", "Phase", "단계", "시작", "완료되었습니다", "입력 완료"])
+            ):
                 selected_docs = find_similar_precedents(
                     prompt, st.session_state.precedents, st.session_state.embeddings
                 )
