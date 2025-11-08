@@ -122,18 +122,28 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
 
 
 def _parse_precedent_block(text: str) -> dict:
-    """프리텍스트 판례 블록에서 제목/선고/요지/발췌를 최대한 뽑아낸다(룰베이스)."""
+    """프리텍스트 판례 블록에서 제목/선고/요지/발췌/사건번호를 최대한 뽑아낸다(룰베이스)."""
     import re
     t = text.strip()
 
-    # 제목(첫 줄 또는 대법원/고등법원 헤더)
+    # 제목(첫 줄)
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     title = lines[0][:120] if lines else "제목 없음"
 
-    # [대법원 2024. 1. 18. 선고 ... 판결] 패턴에서 법원/선고일자 추출
-    m = re.search(r'\[(?P<court>[^ \[\]]+)\s+(?P<date>\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.)\s*선고.*?판결\]', t)
+    # [대법원 2024. 1. 18. 선고 2023다310471 판결] 패턴에서 법원/선고일자/사건번호 추출
+    m = re.search(
+        r'\[(?P<court>[^ \[\]]+)\s+(?P<date>\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.)\s*선고\s*(?P<caseno>\d{4}\s*[가-힣]{1,2}\s*\d{3,6})\s*판결\]',
+        t
+    )
     court = m.group('court') if m else ""
     date  = m.group('date') if m else ""
+    caseno = m.group('caseno').replace(" ", "") if (m and m.group('caseno')) else ""
+
+    # 대괄호 라인에 못 찾았으면 본문에서 사건번호 한 번 더 시도
+    if not caseno:
+        m2 = re.search(r'(?P<caseno>\d{4}\s*[가-힣]{1,2}\s*\d{3,6})', t)
+        if m2:
+            caseno = m2.group('caseno').replace(" ", "")
 
     # 【판결요지】 또는 【판시사항】 일부 추출
     holding = ""
@@ -167,6 +177,7 @@ def _parse_precedent_block(text: str) -> dict:
         "title": title,
         "court": court,
         "date":  date,
+        "case_no": caseno,
         "holding": holding,
         "excerpt": excerpt,
     }
@@ -174,8 +185,7 @@ def _parse_precedent_block(text: str) -> dict:
 
 def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
     """
-    기존: 커다란 전문 문자열을 그대로 반환
-    변경: 깔끔한 요약카드용 dict 목록 반환
+    깔끔한 요약카드용 dict 목록 반환: title, court, date, case_no, holding, excerpt, similarity
     """
     if not embeddings or not precedents:
         return []
@@ -194,7 +204,7 @@ def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
     results = []
     for i in idxs:
         sim = float(sims[i])
-        # 임계값 너무 높으면 안 나오는 문제 → 살짝 완화(0.20)
+        # 임계값 완화(0.20)
         if sim < 0.20:
             continue
 
@@ -262,6 +272,17 @@ def _is_final_report(txt: str) -> bool:
             hits += 1
     return (hits >= 2) and (len(t) > 800)
 
+def _query_title(prompt_text: str) -> str:
+    """프롬프트에서 첫 번째 [대괄호] 제목만 추출. 없으면 첫 줄 80자."""
+    if not prompt_text:
+        return ""
+    m = re.search(r'\[([^\]]+)\]', prompt_text)
+    if m:
+        return m.group(1).strip()
+    # 대괄호 없으면 첫줄
+    first = prompt_text.strip().splitlines()[0].strip()
+    return (first[:77] + "…") if len(first) > 80 else first
+
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
@@ -306,14 +327,20 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 else:
                     similar_cases = find_similar_precedents(prompt, precedents, embeddings, top_k=5)
                     if similar_cases:
-                        # 헤더 + 검색 쿼리
-                        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `" + prompt + "`\n")
+                        # 헤더 + "검색 쿼리: [제목만]" 으로 출력
+                        q_title = _query_title(prompt)
+                        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `[" + q_title + "]`\n")
 
                         # 상위 3건만 카드형 요약으로 출력 (유사도 → %)
                         for case in similar_cases[:3]:
                             sim_pct = int(round(case["similarity"] * 100))
+                            label = f"판례 [{case.get('title','제목 없음')}]"
+                            # 사건번호가 있으면 라벨 뒤에 붙임: — 대법원 2023다310471
+                            if case.get("court") and case.get("case_no"):
+                                label += f" — {case['court']} {case['case_no']}"
+
                             item_md = (
-                                f"* 판례 [{case.get('title','제목 없음')}]  \n"
+                                f"* {label}  \n"
                                 f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
                                 f"  - 판결요지: {case.get('holding','').strip()}  \n"
                                 f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
