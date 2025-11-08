@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 7.1 — Fine-Tune Build (윤진 커스텀)
+# 🛡️ 베리타스 엔진 7.1 — Fine-Tune Build (윤진 커스텀 완성본)
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -154,7 +154,7 @@ for message in st.session_state.messages:
         st.markdown(f"<div class='fadein'>{message['content']}</div>", unsafe_allow_html=True)
 
 
-# --- 7. 입력 및 마지막 Phase에서만 판례 호출 ---
+# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
@@ -170,10 +170,12 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     full_response += chunk.text
                     placeholder.markdown(f"<div class='fadein'>{full_response}▌</div>", unsafe_allow_html=True)
                 placeholder.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
+
+            # ✅ 스트림 완료 후 저장
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # ✅ 마지막 Phase(최종 결과)일 때만 판례 삽입
-            if any(key in prompt for key in ["결론", "최종", "결과", "요약", "종합"]):
+            # ✅ 브리핑 보고서(Phase 종료)에서만 판례 출력 — 트리거 고정
+            if any(key in full_response for key in ["브리핑 보고서", "최종 보고서", "최종 결론", "최종 판단", "요약 보고서"]):
                 precedents, embeddings = load_and_embed_precedents()
                 similar_cases = find_similar_precedents(prompt, precedents, embeddings)
                 if similar_cases:
