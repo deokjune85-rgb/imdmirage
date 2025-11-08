@@ -182,10 +182,32 @@ for message in st.session_state.messages:
         st.markdown(f"<div class='fadein'>{message['content']}</div>", unsafe_allow_html=True)
 
 # --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
-# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    st.session_state["did_precedent"] = False  # 🔹(추가) 매 턴 리셋
+import re
 
+def _is_menu_input(s: str) -> bool:
+    if not s:
+        return False
+    s = s.strip()
+    # 숫자만, 또는 2-숫자 형태만 (메뉴 선택)
+    return bool(re.fullmatch(r'\d+|2-\d+', s))
+
+def _is_final_report(txt: str) -> bool:
+    if not txt:
+        return False
+    t = txt.replace(" ", "")
+    # '최종 보고서' 포맷의 핵심 표지어가 최소 2개 이상 존재 + 길이 기준
+    hits = 0
+    for key in ["유사수신/사기전략브리핑보고서",
+                "리스크시뮬레이션분석",
+                "권장다음단계",
+                "면책조항",
+                "최종보고서",
+                "브리핑보고서"]:
+        if key in t:
+            hits += 1
+    return (hits >= 2) and (len(t) > 800)
+
+if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(f"<div class='fadein'>{prompt}</div>", unsafe_allow_html=True)
@@ -197,6 +219,7 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 placeholder = st.empty()
                 full_response = ""
                 for chunk in response_stream:
+                    # 일부 응답 조각이 비어있는 경우가 있어 가드
                     if not getattr(chunk, "text", None):
                         continue
                     full_response += chunk.text
@@ -209,49 +232,34 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     unsafe_allow_html=True
                 )
 
-            # 스트림이 비었으면 non-stream 폴백
+            # 스트림이 비어 있으면 non-stream 폴백
             if not full_response.strip():
                 non_stream = st.session_state.chat.send_message(prompt)
-                try:
-                    txt = getattr(non_stream, "text", None)
-                    if txt:
-                        full_response = txt
-                except Exception:
-                    pass
-                if full_response.strip():
+                txt = getattr(non_stream, "text", None)
+                if txt:
+                    full_response = txt
                     with st.chat_message("Architect", avatar="🛡️"):
                         st.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
 
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # 🔹(추가) 디버그: 탄약고 카운트 찍기
-            precedents, embeddings = load_and_embed_precedents()
-            st.session_state["__dbg_counts__"] = (len(precedents), len(embeddings))
-
-            # 🔹(추가) 강제 1회 판례 부착 (면책이든 뭐든, 매 턴 한 번은 붙임)
-            if st.session_state.get("did_precedent") is False:
+            # 🔒 여기서 '최종 보고서'일 때만 판례 붙임 (메뉴 입력/중간 단계에서는 절대 안 붙임)
+            if _is_final_report(full_response) and not _is_menu_input(prompt):
+                precedents, embeddings = load_and_embed_precedents()
                 if not precedents or not embeddings:
                     st.warning("⚠️ 판례 탄약고가 비었거나 로드 실패. 'precedents_data.txt' 위치/형식 확인.")
                 else:
-                    similar_cases = find_similar_precedents(prompt, precedents, embeddings)
+                    similar_cases = find_similar_precedents(prompt, precedents, embeddings, top_k=5)
                     if similar_cases:
                         st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
+                        # 과도한 줄바꿈 방지
                         for case in similar_cases:
-                            cleaned = case.replace("\n\n\n", "\n\n")
+                            cleaned = case.replace("\r", "").replace("\n\n\n", "\n\n")
                             st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
                     else:
-                        st.info("ℹ️ 유사 판례가 0건입니다. (임계값 0.20) — 쿼리를 더 구체적으로 입력해 보세요.")
-                st.session_state["did_precedent"] = True
-
-            # 🔹(추가) 최소 디버그 패널 (보이기만 함 / UI 불변)
-            try:
-                c_pre, c_emb = st.session_state.get("__dbg_counts__", (0,0))
-                print(f"[RAG] precedents={c_pre}, embeddings={c_emb}")
-            except Exception:
-                pass
+                        st.info("ℹ️ 최종 보고서 기준으로 매칭된 유사 판례가 없습니다. (임계값 0.20)")
 
         except Exception as e:
             err = f"시뮬레이션 오류 발생: {e}"
             st.error(err)
             st.session_state.messages.append({"role": "Architect", "content": err})
-
