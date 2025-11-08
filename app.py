@@ -170,7 +170,9 @@ except Exception as e:
 if "precedents" not in st.session_state:
     # --- ★★★ '오류' '수정' (v4.3) ★★★ ---
     # 'os.path' '쓰레기' '폐기'. '단순' '경로' '사용'.
-    st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents("precedents_data.txt")
+    RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+st.session_state.precedents, st.session_state.embeddings = load_and_embed_precedents(RAW_URL)
+
 
 if "model" not in st.session_state:
     st.session_state.model = genai.GenerativeModel(
