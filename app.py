@@ -75,12 +75,12 @@ genai.configure(api_key=API_KEY)
 # --- [작전명: 트로이 목마] 게릴라 RAG 엔진 함수 정의 ---
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
+def embed_text(text, task_type="retrieval_document"):
     try:
         clean_text = text.replace('\n', ' ').strip()
         if not clean_text:
             return None
-        # task_type은 "RETRIEVAL_DOCUMENT" / "RETRIEVAL_QUERY" 만 사용
+        # task_type: "retrieval_document" / "retrieval_query"
         result = genai.embed_content(
             model=EMBEDDING_MODEL_NAME,
             content=clean_text,
@@ -112,7 +112,7 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
 
     embeddings, valid_precedents = [], []
     for p in precedents:
-        ebd = embed_text(p, task_type="RETRIEVAL_DOCUMENT")
+        ebd = embed_text(p, task_type="retrieval_document")
         if ebd:
             embeddings.append(ebd)
             valid_precedents.append(p)
@@ -159,7 +159,7 @@ def _parse_precedent_block(text: str) -> dict:
     if not excerpt:
         excerpt = re.sub(r'\s+', ' ', t)[:300].strip()
 
-    # 좀 줄여주기
+    # 조금 줄이기
     if len(holding) > 130: holding = holding[:130].rstrip() + "…"
     if len(excerpt) > 160: excerpt = excerpt[:160].rstrip() + "…"
 
@@ -180,7 +180,7 @@ def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
     if not embeddings or not precedents:
         return []
 
-    q_emb = embed_text(query_text, task_type="search_query")
+    q_emb = embed_text(query_text, task_type="retrieval_query")
     if q_emb is None:
         return []
 
@@ -205,9 +205,6 @@ def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
         })
 
     return results
-
-
-
 
 
 # --- 4. 시스템 프라임 유전자 (Prime Genome) ---
@@ -309,23 +306,19 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                 else:
                     similar_cases = find_similar_precedents(prompt, precedents, embeddings, top_k=5)
                     if similar_cases:
-                        st.markdown("<br><b>📚 실시간 판례 전문 분석</b><br>", unsafe_allow_html=True)
-                        # 과도한 줄바꿈 방지
-                            if similar_cases:
-        # 헤더 + 검색 쿼리
-        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `" + prompt + "`\n")
+                        # 헤더 + 검색 쿼리
+                        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `" + prompt + "`\n")
 
-        # 상위 3건만 카드형 요약으로 출력
-        for case in similar_cases[:3]:
-            sim_pct = int(round(case["similarity"] * 100))
-            item_md = (
-                f"* 판례 [{case.get('title','제목 없음')}]  \n"
-                f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
-                f"  - 판결요지: {case.get('holding','').strip()}  \n"
-                f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
-            )
-            st.markdown(item_md)
-
+                        # 상위 3건만 카드형 요약으로 출력 (유사도 → %)
+                        for case in similar_cases[:3]:
+                            sim_pct = int(round(case["similarity"] * 100))
+                            item_md = (
+                                f"* 판례 [{case.get('title','제목 없음')}]  \n"
+                                f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
+                                f"  - 판결요지: {case.get('holding','').strip()}  \n"
+                                f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
+                            )
+                            st.markdown(item_md)
                     else:
                         st.info("ℹ️ 최종 보고서 기준으로 매칭된 유사 판례가 없습니다. (임계값 0.20)")
 
