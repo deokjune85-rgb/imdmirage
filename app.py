@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 v8.7 — Final Stable Build
+# 🛡️ 베리타스 엔진 v8.8 — 윤진 커스텀 버전
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -10,80 +10,73 @@ import requests, numpy as np
 # ======================================================
 st.set_page_config(page_title="베리타스 엔진", page_icon="🛡️", layout="centered")
 
-# ✅ 전체 스타일 통합
+# ✅ 스타일 완전 커스텀
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
 
+/* 전체 글꼴 및 색상 */
 html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
-    font-size: 16px !important;
-    line-height: 1.6 !important;
     color: #FFFFFF !important;
+    line-height: 1.6 !important;
+    font-size: 17px !important;
 }
 
+/* 메인 타이틀 — 왼쪽 정렬, 크고 두꺼움 */
+.main-title {
+    font-size: 32px !important;
+    font-weight: 900 !important;
+    color: #FFFFFF !important;
+    text-align: left !important;
+    margin-top: 10px !important;
+    margin-bottom: 25px !important;
+}
+
+/* 채팅 메시지 스타일 */
 [data-testid="stChatMessage"], [data-testid="stChatMessageContent"] {
     background-color: inherit !important;
     border: none !important;
 }
 
-/* ✅ 자연스러운 텍스트 표시 (Fade-in 효과) */
+/* 줄간격 통일 */
+.option-list div {
+    margin-bottom: 4px !important;
+    line-height: 1.6 !important;
+}
+
+/* 텍스트 Fade-in */
 .lineblock {
     white-space: pre-wrap;
-    line-height: 1.6;
-    margin-bottom: 4px;
-    color: #FFFFFF;
-    font-size: 16px;
+    margin-bottom: 5px;
     opacity: 0;
-    animation: fadeIn 0.6s forwards ease-in-out;
+    animation: fadeIn 0.7s forwards ease-in-out;
 }
 @keyframes fadeIn {
     from {opacity: 0;}
     to {opacity: 1;}
 }
 
-/* ✅ 리스트 줄간격 완전 통일 */
-.option-list {
-    line-height: 1.6 !important;
-    margin-top: 10px !important;
-}
-.option-list div {
-    margin-bottom: 2px !important;
-}
-
-/* ✅ 메인 타이틀 */
-.main-title {
-    font-size: 26px !important;
-    font-weight: 800 !important;
-    color: #FFFFFF !important;
-    text-align: center !important;
-    margin-top: 15px !important;
-    margin-bottom: 15px !important;
-}
-
-/* ✅ 자동 스크롤 보조 (채팅 갱신 시) */
+/* 자동 스크롤 */
 .stChatMessage {
     scroll-margin-bottom: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ✅ 자동 스크롤 JS (맨 하단 자동 이동)
+# ✅ 자동 스크롤 유지 (채팅 입력 시)
 st.markdown("""
 <script>
 const scrollToBottom = () => {
-  var chatContainer = window.parent.document.querySelector('[data-testid="stChatInput"]');
-  if (chatContainer) {
-    chatContainer.scrollIntoView({ behavior: "smooth", block: "end" });
-  }
+  var chatContainer = window.parent.document.querySelector('[data-testid="stVerticalBlock"]');
+  if (chatContainer) chatContainer.scrollTo(0, chatContainer.scrollHeight);
 };
-setInterval(scrollToBottom, 500);
+setInterval(scrollToBottom, 400);
 </script>
 """, unsafe_allow_html=True)
 
-# ✅ 메인 타이틀 표시
+# ✅ 메인 타이틀 (왼쪽 정렬)
 st.markdown("<div class='main-title'>🛡️ 베리타스 엔진</div>", unsafe_allow_html=True)
-st.caption("AI 법률 시뮬레이션 시스템 — Confidential Mode")
 
 # ======================================================
 # 2. API CONFIG
@@ -110,7 +103,7 @@ if "chat" not in st.session_state:
     st.session_state.messages = []
 
 # ======================================================
-# 4. UI — 선택 섹션 예시
+# 4. LIST 출력 (1~7 줄바꿈 정상)
 # ======================================================
 with st.chat_message("Architect", avatar="🛡️"):
     st.markdown("""
@@ -133,7 +126,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(f"<div class='lineblock'>{msg['content']}</div>", unsafe_allow_html=True)
 
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
+if prompt := st.chat_input(" "):  # 안내문 제거
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(f"<div class='lineblock'>{prompt}</div>", unsafe_allow_html=True)
