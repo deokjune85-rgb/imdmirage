@@ -1,5 +1,5 @@
 # ======================================================
-# 🛡️ Veritas Engine v7.5 — Phase-End Smart Trigger Build
+# 🛡️ Veritas Engine v7.7 — Phase-End Output Sync Build
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
@@ -8,15 +8,32 @@ import requests, re, os, numpy as np
 # ======================================================
 # 1. SYSTEM CONFIG
 # ======================================================
-st.set_page_config(page_title="베리타스 엔진 v7.5", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="베리타스 엔진 v7.7", page_icon="🛡️", layout="centered")
 
 st.markdown("""
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
+html, body, [class*="css"] {
+    font-family: 'Noto Sans KR', sans-serif !important;
+    font-size: 16px !important;
+    line-height: 1.6 !important;
+    color: #222 !important;
+}
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Noto Sans KR', sans-serif !important;
+    font-weight: 700 !important;
+    color: #1a1a1a !important;
+    margin-top: 1.2em !important;
+    margin-bottom: 0.6em !important;
+}
+[data-testid="stChatMessageContent"] {
+    font-size: 16px !important;
+    line-height: 1.7 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("베리타스 엔진 버전 7.5")
+st.title("베리타스 엔진 버전 7.7")
 st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
 
 # ======================================================
@@ -90,7 +107,6 @@ def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
 
 @st.cache_data(show_spinner=False)
 def load_and_embed_precedents(file_path):
-    """GitHub RAW 또는 로컬 txt를 자동 인식하여 임베딩."""
     try:
         if file_path.startswith("http"):
             r = requests.get(file_path, timeout=10)
@@ -115,7 +131,6 @@ def load_and_embed_precedents(file_path):
     return valid, np.vstack(emb_list) if emb_list else np.array([])
 
 def find_similar_precedents(query, precedents, embeddings, top_k=5):
-    """'사건'과 '가장' '유사한' 판례를 찾아 리스트로 반환한다."""
     if embeddings.size == 0:
         return []
     q_emb = embed_text(query, task_type="RETRIEVAL_QUERY")
@@ -184,10 +199,12 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     placeholder.markdown(answer + "▌")
                 placeholder.markdown(answer)
 
-            # ✅ 판례 분석은 '최종 결과' 시점에서만 출력
+            # ======================================================
+            # ✅ Phase-End 판례 자동 후처리 (최종 출력 시)
+            # ======================================================
             if (
-                any(kw in answer for kw in ["최종", "보고서", "브리핑", "결과 요약"])
-                and not any(kw in answer for kw in ["입력", "Phase", "단계", "시작", "완료되었습니다", "입력 완료"])
+                any(kw in answer for kw in ["최종", "보고서", "브리핑", "결과 요약", "완료"])
+                and not any(kw in answer for kw in ["입력", "Phase", "단계", "시작"])
             ):
                 selected_docs = find_similar_precedents(
                     prompt, st.session_state.precedents, st.session_state.embeddings
@@ -206,8 +223,12 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                             f"  - 유사도: {sim*100:.0f}%\n"
                             f"  - 전문 일부: \"{excerpt}...\"\n\n"
                         )
+
                     with st.chat_message("Architect", avatar="🛡️"):
-                        st.markdown(report_md)
+                        st.markdown(
+                            f"<div style='font-family:Noto Sans KR; font-size:16px; line-height:1.7; color:#222;'>{report_md}</div>",
+                            unsafe_allow_html=True
+                        )
                     st.session_state.messages.append({"role": "Architect", "content": report_md})
 
             # ✅ 법제처 API 후처리
