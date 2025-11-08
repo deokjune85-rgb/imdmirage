@@ -75,66 +75,80 @@ genai.configure(api_key=API_KEY)
 # --- [작전명: 트로이 목마] 게릴라 RAG 엔진 함수 정의 ---
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-def embed_text(text, task_type="retrieval_document"):
+def embed_text(text, task_type="RETRIEVAL_DOCUMENT"):
     try:
         clean_text = text.replace('\n', ' ').strip()
         if not clean_text:
             return None
-        result = genai.embed_content(model=EMBEDDING_MODEL_NAME, content=clean_text, task_type=task_type)
+        # task_type은 "RETRIEVAL_DOCUMENT" / "RETRIEVAL_QUERY" 만 사용
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            content=clean_text,
+            task_type=task_type
+        )
         return result['embedding']
     except Exception as e:
         print(f"Embedding error: {e}")
         return None
+
 
 @st.cache_data
 def load_and_embed_precedents(file_path='precedents_data.txt'):
     if not os.path.exists(file_path):
         print(f"File not found: {file_path}")
         return [], []
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except Exception as e:
         print(f"Error reading file: {e}")
         return [], []
-    precedents = [p.strip() for p in content.split('---END OF PRECEDENT---') if p.strip()]
+
+    # 견고한 스플릿: 마커 라인에 공백/개행 있어도 분할
+    import re
+    chunks = re.split(r'\s*---END OF PRECEDENT---\s*', content)
+    precedents = [p.strip() for p in chunks if p and p.strip()]
+
     embeddings, valid_precedents = [], []
     for p in precedents:
-        ebd = embed_text(p)
+        ebd = embed_text(p, task_type="RETRIEVAL_DOCUMENT")
         if ebd:
             embeddings.append(ebd)
             valid_precedents.append(p)
-    print(f"Successfully loaded and embedded {len(valid_precedents)} precedents.")
+
+    print(f"[RAG] precedents={len(valid_precedents)}")
     return valid_precedents, embeddings
+
 
 def find_similar_precedents(query_text, precedents, embeddings, top_k=5):
     if not embeddings or not precedents:
         return []
 
-    # 쿼리 임베딩
-    query_embedding = embed_text(query_text, task_type="search_query")
-    if query_embedding is None:
+    q_emb = embed_text(query_text, task_type="RETRIEVAL_QUERY")
+    if q_emb is None:
         return []
 
-    embeddings_np = np.array(embeddings)
-    q_np = np.array(query_embedding)
+    import numpy as np
+    M = np.array(embeddings, dtype=float)      # (N, D)
+    q = np.array(q_emb, dtype=float)           # (D,)
 
-    # text-embedding-004는 보통 단위 정규화되어 있어 내적 ≈ 코사인 유사도
-    sims = np.dot(embeddings_np, q_np)
+    # 코사인 유사도
+    M_norm = np.linalg.norm(M, axis=1) + 1e-12
+    q_norm = np.linalg.norm(q) + 1e-12
+    sims = (M @ q) / (M_norm * q_norm)
 
-    # 상위 K개
     order = np.argsort(sims)[::-1][:top_k]
 
     results = []
     for idx in order:
-        # 🔽 임계값 완화: 0.20 (너무 깐깐하면 아무 것도 안 뜸)
-        if sims[idx] >= 0.20:
-            # 과도한 줄바꿈만 최소화
+        if sims[idx] >= 0.20:  # 완화
             snippet = precedents[idx].replace("\r", "").replace("\n\n\n", "\n\n")
             results.append(
                 f"[유사 판례 발견 (유사도: {sims[idx]:.2f})]\n{snippet}\n---\n"
             )
     return results
+
 
 
 
@@ -168,8 +182,9 @@ for message in st.session_state.messages:
         st.markdown(f"<div class='fadein'>{message['content']}</div>", unsafe_allow_html=True)
 
 # --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
+# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    st.session_state["did_precedent"] = False  # 매 턴 리셋
+    st.session_state["did_precedent"] = False  # 🔹(추가) 매 턴 리셋
 
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
@@ -194,12 +209,13 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                     unsafe_allow_html=True
                 )
 
+            # 스트림이 비었으면 non-stream 폴백
             if not full_response.strip():
-                non_stream_resp = st.session_state.chat.send_message(prompt)
+                non_stream = st.session_state.chat.send_message(prompt)
                 try:
-                    text_part = getattr(non_stream_resp, "text", None)
-                    if text_part:
-                        full_response = text_part
+                    txt = getattr(non_stream, "text", None)
+                    if txt:
+                        full_response = txt
                 except Exception:
                     pass
                 if full_response.strip():
@@ -208,13 +224,14 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
 
             st.session_state.messages.append({"role": "Architect", "content": full_response})
 
-            # ✅ 매 턴 한 번은 강제 판례 시도
-            if st.session_state.get("did_precedent") is False:
-                precedents, embeddings = load_and_embed_precedents()
+            # 🔹(추가) 디버그: 탄약고 카운트 찍기
+            precedents, embeddings = load_and_embed_precedents()
+            st.session_state["__dbg_counts__"] = (len(precedents), len(embeddings))
 
-                # 🔽 추가: 탄약고 비었을 때 즉시 안내(왜 안 나오는지 바로 보이게)
+            # 🔹(추가) 강제 1회 판례 부착 (면책이든 뭐든, 매 턴 한 번은 붙임)
+            if st.session_state.get("did_precedent") is False:
                 if not precedents or not embeddings:
-                    st.warning("⚠️ 판례 탄약고가 비었거나 로드에 실패했습니다. 'precedents_data.txt' 파일을 앱 실행 디렉토리에 두세요.")
+                    st.warning("⚠️ 판례 탄약고가 비었거나 로드 실패. 'precedents_data.txt' 위치/형식 확인.")
                 else:
                     similar_cases = find_similar_precedents(prompt, precedents, embeddings)
                     if similar_cases:
@@ -222,8 +239,16 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
                         for case in similar_cases:
                             cleaned = case.replace("\n\n\n", "\n\n")
                             st.markdown(f"<div class='fadein'>{cleaned}</div>", unsafe_allow_html=True)
-
+                    else:
+                        st.info("ℹ️ 유사 판례가 0건입니다. (임계값 0.20) — 쿼리를 더 구체적으로 입력해 보세요.")
                 st.session_state["did_precedent"] = True
+
+            # 🔹(추가) 최소 디버그 패널 (보이기만 함 / UI 불변)
+            try:
+                c_pre, c_emb = st.session_state.get("__dbg_counts__", (0,0))
+                print(f"[RAG] precedents={c_pre}, embeddings={c_emb}")
+            except Exception:
+                pass
 
         except Exception as e:
             err = f"시뮬레이션 오류 발생: {e}"
