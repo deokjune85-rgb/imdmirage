@@ -1,31 +1,22 @@
 import streamlit as st
-
 import google.generativeai as genai
+import os
+import numpy as np # RAG 엔진을 위한 벡터 연산 라이브러리
 
 
 
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
+st.set_page_config(page_title="베리타스 엔진 7.0", page_icon="🛡️", layout="centered")
 
-st.set_page_config(page_title="베리타스엔진 버전 7.0", page_icon="🛡️", layout="centered")
-
-
-
+# CSS 해킹 (신기루 프로토콜)
 hide_streamlit_style = """
-
-<style>
-
-#MainMenu {visibility: hidden;}
-
-footer {visibility: hidden;}
-
-header {visibility: hidden;}
-
-.stDeployButton {visibility: hidden;}
-
-</style>
-
-"""
-
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            .stDeployButton {visibility: hidden;}
+            </style>
+            """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 
