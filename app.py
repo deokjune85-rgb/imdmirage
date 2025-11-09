@@ -206,7 +206,7 @@ except (FileNotFoundError, ValueError) as e:
 if "model" not in st.session_state:
     try:
         # [수정됨] 존재하지 않는 '2.5'가 아니라 '1.5-flash-latest' 사용. 'models/' 접두사 추가.
-        st.session_state.model = genai.GenerativeModel("models/gemini-1.5-flash-latest",
+        st.session_state.model = genai.GenerativeModel("models/gemini-2.5-flash",
                                                     system_instruction=SYSTEM_INSTRUCTION)
         
         # [RAG 초기화]
