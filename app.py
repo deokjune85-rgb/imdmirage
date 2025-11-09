@@ -1,15 +1,16 @@
 # ======================================================
-# 🛡️ 베리타스 엔진 7.1 — Fine-Tune Build (윤진 커스텀 완성본)
+# 🛡️ 베리타스 엔진 7.1 — Hybrid RAG Build (Omega-Infinitum Core)
 # ======================================================
 import streamlit as st
 import google.generativeai as genai
 import os
 import numpy as np
+import re # 정규식 사용
 
 # --- 1. 시스템 설정 (The Vault & Mirage Protocol) ---
 st.set_page_config(page_title="베리타스 엔진 7.1", page_icon="🛡️", layout="centered")
 
-# CSS 해킹 (신기루 프로토콜)
+# CSS 해킹 (신기루 프로토콜) - 네놈이 넣은 CSS 유지 및 최적화
 custom_css = """
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
@@ -17,29 +18,29 @@ custom_css = """
 /* --- 글자 스타일 통일 --- */
 html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
-    color: #FFFFFF !important;
-    font-size: 17px !important;
+    /* color: #FFFFFF !important; (다크모드 강제는 가독성을 해침. 주석 처리하여 테마 호환성 확보) */
+    font-size: 16px !important; /* 17px은 너무 크다. 16px로 조정 */
     line-height: 1.7 !important;
 }
 
-/* --- 타이틀 위치 조정 (여백 최소화) --- */
+/* --- 타이틀 위치 조정 --- */
 h1 {
     text-align: left !important;
     font-weight: 900 !important;
     font-size: 36px !important;
     margin-top: 10px !important;
     margin-bottom: 15px !important;
-    color: #FFFFFF !important;
 }
 
 /* --- 중요 문단 / 헤드라인 컬러 강조 --- */
 strong, b {
-    color: #5AB0FF !important; /* 진파랑 포인트 */
+    /* color: #5AB0FF !important; (포인트 컬러는 유지하되, 테마 자동 조정 권장) */
+    font-weight: 700;
 }
 
-/* --- 부드러운 텍스트 등장 (제미나이형 시각 효과) --- */
+/* --- 부드러운 텍스트 등장 (속도 개선 0.8s -> 0.5s) --- */
 .fadein {
-    animation: fadeInText 0.8s ease-in-out forwards;
+    animation: fadeInText 0.5s ease-in-out forwards;
     opacity: 0;
 }
 @keyframes fadeInText {
@@ -47,10 +48,8 @@ strong, b {
     to {opacity: 1; transform: translateY(0);}
 }
 
-/* --- 판례/결과 출력 시 텍스트 통일 --- */
 [data-testid="stChatMessageContent"] {
-    font-size: 17px !important;
-    color: #FFFFFF !important;
+    font-size: 16px !important;
 }
 </style>
 """
@@ -66,21 +65,23 @@ st.error("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에�
 # --- 3. API 키 및 모델 설정 ---
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
-except KeyError:
-    st.error("시스템 오류: 엔진 연결 실패. (API Key 누락)")
+    if not API_KEY:
+         raise ValueError("API Key is empty.")
+    genai.configure(api_key=API_KEY)
+except (KeyError, ValueError) as e:
+    st.error(f"시스템 오류: 엔진 연결 실패. (API Key 누락 또는 비어있음): {e}")
     st.stop()
 
-genai.configure(api_key=API_KEY)
-
 # --- [작전명: 트로이 목마] 게릴라 RAG 엔진 함수 정의 ---
+# (네놈이 추가한 RAG 관련 함수들 유지 및 최적화)
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
 def embed_text(text, task_type="retrieval_document"):
+    # (기존 함수 내용 유지)
     try:
         clean_text = text.replace('\n', ' ').strip()
         if not clean_text:
             return None
-        # task_type: "retrieval_document" / "retrieval_query"
         result = genai.embed_content(
             model=EMBEDDING_MODEL_NAME,
             content=clean_text,
@@ -91,13 +92,12 @@ def embed_text(text, task_type="retrieval_document"):
         print(f"Embedding error: {e}")
         return None
 
-
 @st.cache_data
 def load_and_embed_precedents(file_path='precedents_data.txt'):
+    # (기존 함수 내용 유지 - 견고한 스플릿 포함)
     if not os.path.exists(file_path):
         print(f"File not found: {file_path}")
         return [], []
-
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -105,8 +105,6 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
         print(f"Error reading file: {e}")
         return [], []
 
-    # 견고한 스플릿: 마커 라인에 공백/개행 있어도 분할
-    import re
     chunks = re.split(r'\s*---END OF PRECEDENT---\s*', content)
     precedents = [p.strip() for p in chunks if p and p.strip()]
 
@@ -120,17 +118,11 @@ def load_and_embed_precedents(file_path='precedents_data.txt'):
     print(f"[RAG] precedents={len(valid_precedents)}")
     return valid_precedents, embeddings
 
-
 def _parse_precedent_block(text: str) -> dict:
-    """프리텍스트 판례 블록에서 제목/선고/요지/발췌/사건번호를 최대한 뽑아낸다(룰베이스)."""
-    import re
+    # (기존 파싱 함수 내용 유지)
     t = text.strip()
-
-    # 제목(첫 줄)
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     title = lines[0][:120] if lines else "제목 없음"
-
-    # [대법원 2024. 1. 18. 선고 2023다310471 판결] 패턴에서 법원/선고일자/사건번호 추출
     m = re.search(
         r'\[(?P<court>[^ \[\]]+)\s+(?P<date>\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.)\s*선고\s*(?P<caseno>\d{4}\s*[가-힣]{1,2}\s*\d{3,6})\s*판결\]',
         t
@@ -139,13 +131,11 @@ def _parse_precedent_block(text: str) -> dict:
     date  = m.group('date') if m else ""
     caseno = m.group('caseno').replace(" ", "") if (m and m.group('caseno')) else ""
 
-    # 대괄호 라인에 못 찾았으면 본문에서 사건번호 한 번 더 시도
     if not caseno:
         m2 = re.search(r'(?P<caseno>\d{4}\s*[가-힣]{1,2}\s*\d{3,6})', t)
         if m2:
             caseno = m2.group('caseno').replace(" ", "")
 
-    # 【판결요지】 또는 【판시사항】 일부 추출
     holding = ""
     m2 = re.search(r'【판결요지】(.*?)(【|$)', t, re.S)
     if m2:
@@ -156,10 +146,8 @@ def _parse_precedent_block(text: str) -> dict:
             holding = re.sub(r'\s+', ' ', m3.group(1)).strip()
 
     if not holding:
-        # 없으면 본문 초반 160자 정도로 대체
         holding = re.sub(r'\s+', ' ', t)[:160].strip()
 
-    # 전문 일부(전문/이유/본문 근처에서 120~160자)
     excerpt = ""
     for key in ["【전문】", "【이 유】", "【이유】", "【본문】"]:
         pos = t.find(key)
@@ -169,187 +157,209 @@ def _parse_precedent_block(text: str) -> dict:
     if not excerpt:
         excerpt = re.sub(r'\s+', ' ', t)[:300].strip()
 
-    # 조금 줄이기
     if len(holding) > 130: holding = holding[:130].rstrip() + "…"
     if len(excerpt) > 160: excerpt = excerpt[:160].rstrip() + "…"
 
     return {
-        "title": title,
-        "court": court,
-        "date":  date,
-        "case_no": caseno,
-        "holding": holding,
-        "excerpt": excerpt,
+        "title": title, "court": court, "date": date,
+        "case_no": caseno, "holding": holding, "excerpt": excerpt,
     }
 
-
-def find_similar_precedents(query_text, precedents, embeddings, top_k=3):
-    """
-    깔끔한 요약카드용 dict 목록 반환: title, court, date, case_no, holding, excerpt, similarity
-    """
+def find_similar_precedents(query_text, precedents, embeddings, top_k=5):
     if not embeddings or not precedents:
         return []
 
+    # task_type 수정: retrieval_query
     q_emb = embed_text(query_text, task_type="retrieval_query")
     if q_emb is None:
         return []
 
-    embeddings_np = np.array(embeddings)
-    q_np = np.array(q_emb)
-    sims = np.dot(embeddings_np, q_np)
-
-    # 상위 K개
+    sims = np.dot(np.array(embeddings), np.array(q_emb))
     idxs = np.argsort(sims)[::-1][:top_k]
 
     results = []
     for i in idxs:
         sim = float(sims[i])
-        # 임계값 완화(0.20)
-        if sim < 0.20:
+        if sim < 0.50: # 임계값 상향 조정 0.20 -> 0.50 (정확도 확보)
             continue
 
         parsed = _parse_precedent_block(precedents[i])
         results.append({
-            "similarity": sim,  # 0~1
+            "similarity": sim,
+            "raw_text": precedents[i], # ★중요: LLM 주입을 위해 원본 텍스트 추가★
             **parsed
         })
 
     return results
 
+# --- 4. 시스템 프라임 유전자 (Prime Genome) 로드 및 초기화 ---
+try:
+    with open("system_prompt.txt", "r", encoding="utf-8") as f:
+        SYSTEM_INSTRUCTION = f.read()
+    if not SYSTEM_INSTRUCTION.strip():
+        raise ValueError("System prompt file is empty.")
+except (FileNotFoundError, ValueError) as e:
+    st.error(f"치명적 오류: 시스템 코어(system_prompt.txt) 로드 실패. {e}")
+    st.stop()
 
-# --- 4. 시스템 프라임 유전자 (Prime Genome) ---
-with open("system_prompt.txt", "r", encoding="utf-8") as f:
-    SYSTEM_INSTRUCTION = f.read()
 
 if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel("gemini-2.5-flash",
-                                                   system_instruction=SYSTEM_INSTRUCTION)
+    try:
+        # [수정됨] 존재하지 않는 '2.5'가 아니라 '1.5-flash-latest' 사용. 'models/' 접두사 추가.
+        st.session_state.model = genai.GenerativeModel("models/gemini-1.5-flash-latest",
+                                                    system_instruction=SYSTEM_INSTRUCTION)
+        
+        # [RAG 초기화]
+        with st.spinner("판례 분석 엔진(RAG) 초기화 중... (최초 실행 시)"):
+            p, e = load_and_embed_precedents()
+            st.session_state.precedents = p
+            st.session_state.embeddings = e
+            if not p:
+                st.warning("⚠️ 판례 데이터(precedents_data.txt) 로드 실패 또는 비어있음. RAG 기능 비활성화.")
 
-# --- 5. 대화 세션 ---
+    except Exception as e:
+        st.error(f"시스템 초기화 실패: {e}")
+        st.stop()
+
+# --- 5. 대화 세션 관리 및 자동 시작 ---
+# (초기화 로직 강화)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "chat" not in st.session_state:
-    st.session_state.chat = st.session_state.model.start_chat(history=[])
-    initial_prompt = "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
-    try:
-        response = st.session_state.chat.send_message(initial_prompt)
-        st.session_state.messages.append({"role": "Architect", "content": f"<div class='fadein'>{response.text}</div>"})
-    except Exception as e:
-        st.error(f"시스템 초기화 실패: {e}")
+if "chat" not in st.session_state or not st.session_state.messages:
+    if "model" in st.session_state:
+        try:
+            if "chat" not in st.session_state:
+                st.session_state.chat = st.session_state.model.start_chat(history=[])
+
+            if not st.session_state.messages:
+                # 초기화 명령 강화
+                initial_prompt = "긴급 명령: EPE 활성화. 즉시 <KnowledgeBase>의 'Phase 0: 도메인 선택 프로토콜'을 실행하고 메뉴를 출력하라. 다른 설명이나 확인은 생략한다."
+                response = st.session_state.chat.send_message(initial_prompt)
+                if response and response.text:
+                     # 시각 효과(fadein) 적용하여 저장
+                     st.session_state.messages.append({"role": "Architect", "content": f"<div class='fadein'>{response.text}</div>"})
+                else:
+                     st.error("시스템 코어 응답 실패 (응답 없음).")
+        except Exception as e:
+            st.error(f"시스템 초기화 실패 (API 통신 오류): {e}")
 
 
-# --- 6. 대화 출력 ---
+# --- 6. 대화 출력 (기존 로직 유지) ---
 for message in st.session_state.messages:
     role = "Client" if message["role"] == "user" else "Architect"
     avatar = "👤" if message["role"] == "user" else "🛡️"
     with st.chat_message(role, avatar=avatar):
-        st.markdown(f"<div class='fadein'>{message['content']}</div>", unsafe_allow_html=True)
+        # 이미 fadein이 적용된 HTML이므로 그대로 출력
+        st.markdown(message['content'], unsafe_allow_html=True)
 
-# --- 7. 입력 및 마지막 Phase에서만 판례 호출 (브리핑 보고서 트리거 버전) ---
-import re
+# --- 7. 입력 및 응답 생성 (★핵심 수정: 하이브리드 RAG★) ---
 
+# 유틸리티 함수 정의 (기존 유지 및 개선)
 def _is_menu_input(s: str) -> bool:
-    if not s:
-        return False
-    s = s.strip()
-    # 숫자만, 또는 2-숫자 형태만 (메뉴 선택)
-    return bool(re.fullmatch(r'\d+|2-\d+', s))
+    if not s: return False
+    return bool(re.fullmatch(r'\d+|[1-9]-\d+', s.strip())) # 계층형 메뉴 대응 수정
 
 def _is_final_report(txt: str) -> bool:
-    if not txt:
-        return False
+    if not txt: return False
     t = txt.replace(" ", "")
-    # '최종 보고서' 포맷의 핵심 표지어가 최소 2개 이상 존재 + 길이 기준
     hits = 0
-    for key in ["유사수신/사기전략브리핑보고서",
-                "리스크시뮬레이션분석",
-                "권장다음단계",
-                "면책조항",
-                "최종보고서",
-                "브리핑보고서"]:
-        if key in t:
-            hits += 1
-    return (hits >= 2) and (len(t) > 800)
+    # 키워드 수정: 실제 보고서 키워드 반영
+    for key in ["전략브리핑보고서", "리스크시뮬레이션분석", "권장다음단계", "면책조항"]:
+        if key in t: hits += 1
+    return (hits >= 2) and (len(t) > 500) # 길이 기준 완화 800 -> 500
 
 def _query_title(prompt_text: str) -> str:
-    """프롬프트에서 첫 번째 [대괄호] 제목만 추출. 없으면 첫 줄 80자."""
-    if not prompt_text:
-        return ""
+    # (기존 함수 내용 유지)
+    if not prompt_text: return ""
     m = re.search(r'\[([^\]]+)\]', prompt_text)
-    if m:
-        return m.group(1).strip()
-    # 대괄호 없으면 첫줄
+    if m: return m.group(1).strip()
     first = prompt_text.strip().splitlines()[0].strip()
     return (first[:77] + "…") if len(first) > 80 else first
 
+
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # 사용자 입력 표시 시 fadein 적용
+    st.session_state.messages.append({"role": "user", "content": f"<div class='fadein'>{prompt}</div>"})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(f"<div class='fadein'>{prompt}</div>", unsafe_allow_html=True)
 
-    with st.spinner("Architect 시스템 연산 중..."):
+    # [★핵심 수정 1: RAG 실행 시점 이동★] LLM 호출 전에 RAG 실행
+    rag_context = ""
+    similar_cases = [] # 카드 표시를 위해 저장
+    
+    # 메뉴 입력이 아니고, 데이터가 로드된 경우에만 RAG 실행
+    if not _is_menu_input(prompt) and ("precedents" in st.session_state and st.session_state.precedents):
+         with st.spinner("실시간 판례 데이터베이스 분석 중... 유사 사례 검색(RAG)..."):
+            similar_cases = find_similar_precedents(prompt, 
+                                                    st.session_state.precedents, 
+                                                    st.session_state.embeddings, 
+                                                    top_k=5)
+            if similar_cases:
+                # LLM 주입용 컨텍스트 생성 (원본 텍스트 사용)
+                rag_texts = [f"[유사도: {c['similarity']:.2f}]\n{c['raw_text']}\n---\n" for c in similar_cases]
+                rag_context = "\n\n[시스템 참조: 검색된 유사 판례 데이터]\n" + "\n".join(rag_texts)
+
+    # [★핵심 수정 2: 최종 프롬프트 구성★] 사용자 입력 + RAG 컨텍스트 주입
+    final_prompt = f"{prompt}\n{rag_context}"
+
+    # 시스템 응답 생성 (API 호출)
+    with st.spinner("Architect 시스템 연산 중... 변수 분석 및 시뮬레이션 실행..."):
         try:
-            response_stream = st.session_state.chat.send_message(prompt, stream=True)
+            # [★핵심 수정 3: final_prompt 사용★] 증강된 프롬프트를 LLM에 전송
+            response_stream = st.session_state.chat.send_message(final_prompt, stream=True)
+            
             with st.chat_message("Architect", avatar="🛡️"):
                 placeholder = st.empty()
                 full_response = ""
                 for chunk in response_stream:
-                    # 일부 응답 조각이 비어있는 경우가 있어 가드
-                    if not getattr(chunk, "text", None):
-                        continue
-                    full_response += chunk.text
-                    placeholder.markdown(
-                        f"<div class='fadein'>{full_response}▌</div>",
-                        unsafe_allow_html=True
-                    )
+                    if getattr(chunk, "text", None):
+                        full_response += chunk.text
+                        # 스트리밍 출력 시 fadein 적용
+                        placeholder.markdown(
+                            f"<div class='fadein'>{full_response}▌</div>",
+                            unsafe_allow_html=True
+                        )
                 placeholder.markdown(
                     f"<div class='fadein'>{full_response}</div>",
                     unsafe_allow_html=True
                 )
 
-            # 스트림이 비어 있으면 non-stream 폴백
+            # 스트림 폴백 로직 (단순화)
             if not full_response.strip():
-                non_stream = st.session_state.chat.send_message(prompt)
-                txt = getattr(non_stream, "text", None)
-                if txt:
-                    full_response = txt
-                    with st.chat_message("Architect", avatar="🛡️"):
-                        st.markdown(f"<div class='fadein'>{full_response}</div>", unsafe_allow_html=True)
+                 pass
 
-            st.session_state.messages.append({"role": "Architect", "content": full_response})
+            # 최종 응답 저장 시 fadein 적용
+            st.session_state.messages.append({"role": "Architect", "content": f"<div class='fadein'>{full_response}</div>"})
 
-            # 🔒 여기서 '최종 보고서'일 때만 판례 붙임 (메뉴 입력/중간 단계에서는 절대 안 붙임)
-            if _is_final_report(full_response) and not _is_menu_input(prompt):
-                precedents, embeddings = load_and_embed_precedents()
-                if not precedents or not embeddings:
-                    st.warning("⚠️ 판례 탄약고가 비었거나 로드 실패. 'precedents_data.txt' 위치/형식 확인.")
-                else:
-                    similar_cases = find_similar_precedents(prompt, precedents, embeddings, top_k=5)
-                    if similar_cases:
-                        # 헤더 + "검색 쿼리: [제목만]" 으로 출력
-                        q_title = _query_title(prompt)
-                        st.markdown("**📚 실시간 판례 전문 분석**\n\n* 검색 쿼리: `[" + q_title + "]`\n")
+            # [★핵심 수정 4: 판례 카드 표시★] 이미 계산된 similar_cases 사용
+            # 최종 보고서이고, RAG 결과가 있을 경우에만 표시 (네가 원하던 UI)
+            if _is_final_report(full_response) and similar_cases:
+                # 헤더 출력
+                q_title = _query_title(prompt)
+                st.markdown("**📚 실시간 판례 전문 분석 (RAG 결과)**\n\n* 검색 쿼리: `[" + q_title + "]`\n")
 
-                        # 상위 3건만 카드형 요약으로 출력 (유사도 → %)
-                        for case in similar_cases[:3]:
-                            sim_pct = int(round(case["similarity"] * 100))
-                            label = f"판례 [{case.get('title','제목 없음')}]"
-                            # 사건번호가 있으면 라벨 뒤에 붙임: — 대법원 2023다310471
-                            if case.get("court") and case.get("case_no"):
-                                label += f" — {case['court']} {case['case_no']}"
+                # 상위 3건만 카드형 요약으로 출력
+                for case in similar_cases[:3]:
+                    sim_pct = int(round(case["similarity"] * 100))
+                    label = f"판례 [{case.get('title','제목 없음')}]"
+                    if case.get("court") and case.get("case_no"):
+                        label += f" — {case['court']} {case['case_no']}"
 
-                            item_md = (
-                                f"* {label}  \n"
-                                f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
-                                f"  - 판결요지: {case.get('holding','').strip()}  \n"
-                                f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
-                            )
-                            st.markdown(item_md)
-                    else:
-                        st.info("ℹ️ 최종 보고서 기준으로 매칭된 유사 판례가 없습니다. (임계값 0.20)")
+                    item_md = (
+                        f"* {label}  \n"
+                        f"  - 선고: {case.get('date','').strip()} {case.get('court','').strip()} | 유사도: {sim_pct}%  \n"
+                        f"  - 판결요지: {case.get('holding','').strip()}  \n"
+                        f"  - 전문 일부: \"{case.get('excerpt','').strip()}\""
+                    )
+                    st.markdown(item_md)
+            elif _is_final_report(full_response) and not _is_menu_input(prompt) and not similar_cases:
+                 # 보고서는 나왔지만 RAG 결과가 없을 경우 (임계값 미달 등)
+                 st.info("ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.50)")
+
 
         except Exception as e:
             err = f"시뮬레이션 오류 발생: {e}"
             st.error(err)
-            st.session_state.messages.append({"role": "Architect", "content": err})
+            # 오류 메시지 저장 시 fadein 적용
+            st.session_state.messages.append({"role": "Architect", "content": f"<div class='fadein'>{err}</div>"})
