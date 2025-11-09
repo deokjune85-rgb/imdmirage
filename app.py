@@ -187,7 +187,7 @@ except (FileNotFoundError, ValueError) as e:
 if "model" not in st.session_state:
     try:
         # 모델명 확인: 'models/gemini-2.5-flash'
-        st.session_state.model = genai.GenerativeModel("models/gemini-1.5-flash-latest",
+        st.session_state.model = genai.GenerativeModel("models/gemini-2.5-flash",
                                                     system_instruction=SYSTEM_INSTRUCTION)
         
         # [★수정됨★] 듀얼 RAG 초기화
