@@ -178,7 +178,7 @@ except (FileNotFoundError, ValueError) as e:
 
 if "model" not in st.session_state:
     try:
-        # 모델명 확인: 'models/gemini-1.5-flash-latest'
+        # 모델명 확인: 'models/gemini-2.5-flash'
         st.session_state.model = genai.GenerativeModel("models/gemini-1.5-flash-latest",
                                                     system_instruction=SYSTEM_INSTRUCTION)
         
