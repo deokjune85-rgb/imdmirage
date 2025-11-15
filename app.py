@@ -1,179 +1,157 @@
-# =====================================================
-# 🛡️ 베리타스 엔진 8.0 — 실시간 판례 API + 법령 RAG (TXT)
-# =====================================================
+# 베리타스 엔진 8.0 — Domain 메뉴 + Dual RAG (TXT/JSONL 하이브리드)
+
 import streamlit as st
 import google.generativeai as genai
-import requests
-import xml.etree.ElementTree as ET
 import os
-import re
 import numpy as np
+import re
 import time
 import json
 
-# --- 1. 시스템 설정 ---
-st.set_page_config(page_title="베리타스 엔진 8.0", page_icon="🛡️", layout="centered")
+# ---------------------------------------
+# 0. 기본 세팅
+# ---------------------------------------
+st.set_page_config(
+    page_title="베리타스 엔진 8.0",
+    page_icon="🛡️",
+    layout="centered"
+)
 
 custom_css = """
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
 html, body, div, span, p {
     font-family: 'Noto Sans KR', sans-serif !important;
+    font-size: 16px !important;
+    line-height: 1.7 !important;
+}
+h1 {
+    text-align: left !important;
+    font-weight: 900 !important;
+    font-size: 36px !important;
+    margin-top: 10px !important;
+    margin-bottom: 15px !important;
+}
+strong, b { font-weight: 700; }
+.fadein { animation: fadeInText 0.5s ease-in-out forwards; opacity: 0; }
+@keyframes fadeInText {
+    from {opacity: 0; transform: translateY(3px);}
+    to {opacity: 1; transform: translateY(0);}
+}
+[data-testid="stChatMessageContent"] {
+    font-size: 16px !important;
 }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-st.title("🛡️ 베리타스 엔진 v8.0 — 실시간 판례 API 적용")
-st.warning("※ 이 시스템은 The Vault 내부 전용입니다. 모든 데이터는 외부로 유출되지 않습니다.")
+# 상단 타이틀 + 경고
+st.title("베리타스 엔진 8.0")
+st.caption("Phase 0: 도메인 선택 → 이후 Architect가 자동 라우팅")
 
-# --- 2. GOOGLE API KEY ---
+st.warning(
+    "보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. "
+    "모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다."
+)
+
+# ---------------------------------------
+# 1. API 키 설정
+# ---------------------------------------
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
+    if not API_KEY:
+        raise ValueError("API Key is empty.")
     genai.configure(api_key=API_KEY)
-except:
-    st.error("❌ GOOGLE_API_KEY 없음")
+except (KeyError, ValueError) as e:
+    st.error(f"시스템 오류: 엔진 연결 실패. {e}")
     st.stop()
 
-# =====================================================
-# ⚖️ 3. 법제처 판례 API 설정 (OC 기반)
-# =====================================================
-LAW_OC_ID = "deokjune"  # ← 이미 확인된 네 OC
-LAW_SEARCH_URL = "https://www.law.go.kr/DRF/mobPrecSearch.do"  # ← 네가 XML 받은 엔드포인트
-
-def search_precedents_from_api(keyword: str, page: int = 1, per_page: int = 20):
-    """
-    🔍 law.go.kr 판례 API 실시간 검색
-    """
-    try:
-        params = {
-            "OC": LAW_OC_ID,
-            "keyword": keyword,      # ※ 일부 계정은 query=써야 할 수 있음
-            "type": "XML",
-            "page": page
-        }
-
-        resp = requests.get(LAW_SEARCH_URL, params=params, timeout=10)
-        resp.raise_for_status()
-
-        root = ET.fromstring(resp.text)
-        results = []
-
-        for prec in root.findall("prec"):
-            pid = (prec.findtext("판례일련번호") or "").strip()
-            title = (prec.findtext("사건명") or "").strip()
-            case_no = (prec.findtext("사건번호") or "").strip()
-            date = (prec.findtext("선고일자") or "").strip()
-            court = (prec.findtext("법원명") or "").strip()
-            detail = (prec.findtext("판례상세링크") or "").strip()
-
-            if detail.startswith("http"):
-                url = detail
-            else:
-                url = "https://www.law.go.kr" + detail
-
-            rag_index = f"{court} {case_no} / {date}\n{title}\n원문: {url}"
-
-            results.append({
-                "id": pid,
-                "title": title,
-                "case_no": case_no,
-                "court": court,
-                "date": date,
-                "url": url,
-                "rag_index": rag_index,
-                "similarity": 1.0,
-            })
-
-        return results
-
-    except Exception as e:
-        print(f"[판례 API 에러] {e}")
-        return []
-
-
-# =====================================================
-# ⚖️ 4. 법령 RAG (statutes_data.txt)
-# =====================================================
+# ---------------------------------------
+# 2. 임베딩 / RAG 유틸
+# ---------------------------------------
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-def embed_text(text, task_type="retrieval_document"):
+
+def embed_text(text: str, task_type: str = "retrieval_document"):
+    clean_text = text.replace("\n", " ").strip()
+    if not clean_text:
+        return None
     try:
-        clean = text.replace("\n", " ").strip()
-        if not clean:
-            return None
-        res = genai.embed_content(
+        result = genai.embed_content(
             model=EMBEDDING_MODEL_NAME,
-            content=clean,
-            task_type=task_type
+            content=clean_text,
+            task_type=task_type,
         )
-        return res["embedding"]
-    except:
+        return result["embedding"]
+    except Exception as e:
+        print(f"[Embedding error] {e}")
         return None
 
+
 @st.cache_data(show_spinner=True)
-def load_statutes(path="statutes_data.txt", separator=r"\s*---END OF STATUTE---\s*", max_items=300):
+def load_and_embed_data(file_path: str, separator_regex: str = None):
     """
-    txt 법령 로더 → 문단별 임베딩
+    - .jsonl: 줄 단위 JSON ➜ item['rag_index']를 임베딩
+    - .txt  : separator_regex 기준으로 쪼개서 임베딩
     """
-    if not os.path.exists(path):
+    if not os.path.exists(file_path):
+        print(f"[RAG] File not found: {file_path}")
         return [], []
 
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        print(f"[RAG] Error reading file: {e}")
+        return [], []
 
-    chunks = re.split(separator, content)
-    chunks = [c.strip() for c in chunks if c.strip()][:max_items]
+    if not content.strip():
+        return [], []
 
-    items = []
-    emb = []
+    data_items = []
+    embeddings = []
 
-    for c in chunks:
-        e = embed_text(c)
-        if e:
-            items.append({"rag_index": c})
-            emb.append(e)
+    # JSONL
+    if file_path.endswith(".jsonl"):
+        for line in content.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
-    print(f"[법령 RAG] {len(items)}개 로드됨")
-    return items, emb
+            txt = obj.get("rag_index") or obj.get("summary") or ""
+            if not txt:
+                continue
 
+            emb = embed_text(txt, task_type="retrieval_document")
+            if emb:
+                data_items.append(obj)
+                embeddings.append(emb)
 
-# =====================================================
-# ⚙️ 5. 시스템 프롬프트 로드
-# =====================================================
-try:
-    SYSTEM_PROMPT = open("system_prompt.txt", encoding="utf-8").read()
-except:
-    st.error("❌ system_prompt.txt 없음")
-    st.stop()
+    # TXT
+    elif separator_regex:
+        parts = re.split(separator_regex, content)
+        for p in parts:
+            p = p.strip()
+            if not p:
+                continue
+            emb = embed_text(p, task_type="retrieval_document")
+            if emb:
+                data_items.append({"rag_index": p, "raw_text": p})
+                embeddings.append(emb)
 
-
-# =====================================================
-# 🤖 6. 모델 초기화
-# =====================================================
-if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel(
-        "models/gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT
-    )
-
-    # 법령만 로드 (판례는 API로 실시간 검색)
-    with st.spinner("법령 RAG 초기화 중..."):
-        S_DATA, S_EMB = load_statutes()
-        st.session_state.statutes = S_DATA
-        st.session_state.s_embeddings = S_EMB
-
-    st.session_state.chat = st.session_state.model.start_chat(history=[])
-    st.session_state.messages = []
+    print(f"[RAG] Loaded {len(data_items)} items from {file_path}")
+    return data_items, embeddings
 
 
-# =====================================================
-# 🧠 7. 유사 법령 검색
-# =====================================================
-def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.75):
+def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     if not items or not embeddings:
         return []
-    q_emb = embed_text(query_text, "retrieval_query")
+
+    q_emb = embed_text(query_text, task_type="retrieval_query")
     if q_emb is None:
         return []
 
@@ -182,61 +160,128 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.75):
 
     results = []
     for i in idxs:
-        if float(sims[i]) >= threshold:
-            d = items[i].copy()
-            d["similarity"] = float(sims[i])
-            results.append(d)
+        score = float(sims[i])
+        if score < threshold:
+            continue
+        item = items[i].copy()
+        item["similarity"] = score
+        results.append(item)
 
     return results
 
 
-# =====================================================
-# 💬 8. 메시지 출력
-# =====================================================
+# ---------------------------------------
+# 3. 각종 유틸 함수 (Phase 판단 등)
+# ---------------------------------------
+def _is_menu_input(s: str) -> bool:
+    return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
+
+
+def _is_final_report(txt: str) -> bool:
+    return "전략 브리핑 보고서" in txt
+
+
+def _query_title(prompt_text: str) -> str:
+    return prompt_text[:67] + "..." if len(prompt_text) > 70 else prompt_text
+
+
+def update_active_module(response_text: str):
+    m = re.search(r"\[(.+?)\]' 모듈을 활성화합니다", response_text)
+    if m:
+        st.session_state.active_module = m.group(1).strip()
+    elif "Phase 0" in response_text and not st.session_state.get("active_module"):
+        st.session_state.active_module = "Phase 0 (도메인 선택)"
+
+
+# ---------------------------------------
+# 4. 시스템 프라임 프롬프트 로드
+# ---------------------------------------
+try:
+    with open("system_prompt.txt", "r", encoding="utf-8") as f:
+        SYSTEM_INSTRUCTION = f.read()
+    if len(SYSTEM_INSTRUCTION) < 100:
+        raise ValueError("System prompt is too short.")
+except (FileNotFoundError, ValueError) as e:
+    st.error(f"치명적 오류: system_prompt.txt 로드 실패. {e}")
+    st.stop()
+
+# ---------------------------------------
+# 5. Phase 0 — 도메인 선택 UI (여기가 '선택지')
+# ---------------------------------------
+domain_options = [
+    "형사",
+    "민사",
+    "가사/이혼",
+    "파산·회생",
+    "행정/조세",
+    "회사·M&A",
+    "의료/산재",
+    "IP·저작권",
+    "기타(혼합)",
+]
+
+if "selected_domain" not in st.session_state:
+    st.session_state.selected_domain = "형사"
+
+st.subheader("Phase 0 — 사건 도메인 선택")
+
+selected_domain = st.radio(
+    "현재 사건이 속한 주 도메인을 선택하세요.",
+    domain_options,
+    index=domain_options.index(st.session_state.selected_domain),
+    horizontal=True,
+)
+
+st.session_state.selected_domain = selected_domain
+st.info(f"현재 도메인: **{selected_domain}**")
+
+# ---------------------------------------
+# 6. 모델 & 세션 초기화
+# ---------------------------------------
+if "model" not in st.session_state:
+    try:
+        st.session_state.model = genai.GenerativeModel(
+            "models/gemini-2.5-flash",
+            system_instruction=SYSTEM_INSTRUCTION,
+        )
+        st.session_state.chat = st.session_state.model.start_chat(history=[])
+    except Exception as e:
+        st.error(f"시스템 초기화 실패: {e}")
+        st.stop()
+
+    st.session_state.messages = []
+    st.session_state.active_module = f"Phase 0 — {selected_domain}"
+
+    # RAG 코퍼스는 '지연 로딩' (처음 질문 들어올 때)
+    st.session_state.precedents = []
+    st.session_state.p_embeddings = []
+    st.session_state.statutes = []
+    st.session_state.s_embeddings = []
+
+    # 초기 인사/배치
+    try:
+        init_prompt = (
+            f"시스템 가동. 현재 선택된 도메인: {selected_domain}. "
+            f"Phase 0에서 사건 구조를 스캔하고, 이후 Phase 1~를 동적으로 라우팅하라."
+        )
+        resp = st.session_state.chat.send_message(init_prompt)
+        init_text = resp.text
+    except Exception as e:
+        init_text = f"[시스템 초기화 실패: {e}]"
+
+    st.session_state.messages.append({"role": "Architect", "content": init_text})
+    update_active_module(init_text)
+
+# ---------------------------------------
+# 7. 과거 메시지 렌더링
+# ---------------------------------------
 for m in st.session_state.messages:
+    role_name = "Client" if m["role"] == "user" else "Architect"
     avatar = "👤" if m["role"] == "user" else "🛡️"
-    with st.chat_message(avatar):
-        st.markdown(m["content"])
+    with st.chat_message(role_name, avatar=avatar):
+        st.markdown(m["content"], unsafe_allow_html=True)
 
-
-# =====================================================
-# 🧠 9. 메인 입력 처리
-# =====================================================
-if prompt := st.chat_input("사건 설명 또는 질문을 입력하십시오."):
-    # --- 사용자 메시지 표시 ---
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("👤"):
-        st.markdown(prompt)
-
-    rag_context = ""
-
-    # 1) 법령 RAG
-    statutes_found = find_similar_items(
-        prompt,
-        st.session_state.statutes,
-        st.session_state.s_embeddings,
-        top_k=3,
-        threshold=0.75
-    )
-    if statutes_found:
-        rag_context += "\n\n[관련 법령]\n"
-        for s in statutes_found:
-            rag_context += f"- {s['rag_index'][:200]}...\n"
-
-    # 2) 판례 API (OC)
-    with st.spinner("판례 API 검색 중..."):
-        api_cases = search_precedents_from_api(prompt, page=1, per_page=10)
-
-    if api_cases:
-        rag_context += "\n\n[실시간 유사 판례]\n"
-        for c in api_cases[:5]:
-            rag_context += f"- {c['rag_index']}\n\n"
-
-    # --- Gemini 프롬프트 ---
-    final_prompt = f"{prompt}\n\n{rag_context}"
-
-    # --- 모델 응답 ---
-    with st.chat_message("🛡️"):
-        res = st.session_state.chat.send_message(final_prompt)
-        st.markdown(res.text)
-        st.session_state.messages.append({"role": "assistant", "content": res.text})
+# ---------------------------------------
+# 8. 스트리밍 응답 함수
+# ---------------------------------------
+def stream_and_store_response(chat_session, prompt_t_
