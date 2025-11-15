@@ -1,463 +1,204 @@
-# =====================================================
-# 🛡️ 베리타스 엔진 7.6 — Contextual Dual RAG (JSONL/TXT Hybrid) + Relay Mechanism
-# =====================================================
 import streamlit as st
 import google.generativeai as genai
-import os
+import requests
 import numpy as np
-import re
-import time
-import json  # ★ JSONL 처리를 위한 모듈 추가
+from typing import List, Tuple
 
-# --- 1. 시스템 설정 및 CSS ---
-st.set_page_config(page_title="베리타스 엔진 7.6", page_icon="🛡️", layout="centered")
+# -----------------------------
+# 0. 기본 설정
+# -----------------------------
+API_KEY = st.secrets["GOOGLE_API_KEY"]
+genai.configure(api_key=API_KEY)
 
-# 'SaaS 삐끼' 새끼들의 '쓰레기' 'UI'를 '제거'하고 '폰트'를 '강제'한다.
-custom_css = '''
-<style>
-#MainMenu, footer, header, .stDeployButton {visibility:hidden;}
-html, body, div, span, p {
-    font-family: "Noto Sans KR", sans-serif !important;
-    font-size: 16px !important;
-    line-height: 1.7 !important;
-}
-h1 { text-align: left !important; font-weight: 900 !important; font-size: 36px !important; margin-top: 10px !important; margin-bottom: 15px !important; }
-strong, b { font-weight: 700; }
-.fadein { animation: fadeInText 0.5s ease-in-out forwards; opacity: 0; }
-@keyframes fadeInText { from {opacity: 0; transform: translateY(3px);} to {opacity: 1; transform: translateY(0);} }
-[data-testid="stChatMessageContent"] { font-size: 16px !important; }
-</style>
-'''
-st.markdown(custom_css, unsafe_allow_html=True)
-
-# --- 2. 타이틀 및 경고 ---
-st.title("베리타스 엔진 버전 7.6")
-st.warning("보안 경고: 본 시스템은 격리된 사설 환경(The Vault)에서 작동합니다. 모든 데이터는 기밀로 취급되며 외부로 유출되지 않습니다.")
-
-# --- 3. API 키 및 RAG 엔진 설정 ---
-try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
-    if not API_KEY:
-        raise ValueError("API Key is empty.")
-    genai.configure(api_key=API_KEY)
-except (KeyError, ValueError) as e:
-    st.error(f"시스템 오류: 엔진 연결 실패. {e}")
-    st.stop()
-
-# --- [RAG 엔진 함수 정의] (★핵심 수정: JSONL/TXT 하이브리드 로더★) ---
-EMBEDDING_MODEL_NAME = "models/text-embedding-004"
+RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+EMBED_MODEL = "text-embedding-004"
 
 
-def embed_text(text, task_type="retrieval_document"):
-    """'텍스트'를 '벡터(숫자)'로 '변환'하는 '연금술'."""
-    try:
-        clean_text = text.replace("\n", " ").strip()
-        if not clean_text:
-            return None
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL_NAME,
-            content=clean_text,
-            task_type=task_type
-        )
-        return result["embedding"]
-    except Exception as e:
-        print(f"Embedding error: {e}")
-        return None
+# -----------------------------
+# 1. 판례 로딩 + 임베딩
+# -----------------------------
+@st.cache_data(show_spinner="판례 데이터 불러오는 중...")
+def load_precedents(raw_url: str) -> List[str]:
+    resp = requests.get(raw_url, timeout=30)
+    if resp.status_code != 200:
+        raise RuntimeError(f"판례 원본을 불러오지 못했습니다 (status={resp.status_code}).")
+    text = resp.text.strip()
+    # 빈 줄(두 줄 이상 공백) 기준으로 판례 블록 분리
+    blocks: List[str] = [b.strip() for b in text.split("\n\n") if b.strip()]
+    return blocks
 
 
-@st.cache_data(show_spinner=True)  # '탄약고' '장전'은 '눈'으로 '확인'시켜준다.
-def load_and_embed_data(file_path, separator_regex=None):
-    """
-    'JSONL'과 'TXT' '탄약고'를 '읽어' '벡터' '탄약'으로 '주조'한다.
-    - 파일이 아예 없거나 읽기 실패: (None, None) 반환 → 진짜 '로드 실패'
-    - 파일은 읽었는데 컨텐츠 없음: ([], []) 반환 → 파일은 정상, 데이터만 없음
-    """
-    # 1) 파일 존재 여부 체크
-    if not os.path.exists(file_path):
-        print(f"[RAG] File not found: {file_path}")
-        return None, None  # ★ 여기서만 '진짜' 실패 취급
+@st.cache_resource(show_spinner="판례 임베딩 계산 중...")
+def embed_precedents(precedents: List[str]) -> np.ndarray:
+    if not precedents:
+        return np.zeros((0, 768), dtype=np.float32)
 
-    # 2) 파일 읽기
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except Exception as e:
-        print(f"[RAG] Error reading file {file_path}: {e}")
-        return None, None  # ★ 읽기 자체가 안 되면 이것도 '진짜' 실패
+    embeddings: List[List[float]] = []
+    for chunk in precedents:
+        try:
+            res = genai.embed_content(
+                model=EMBED_MODEL,
+                content=chunk,
+            )
+            emb = res["embedding"]
+            embeddings.append(emb)
+        except Exception:
+            # 한 건 실패해도 전체가 죽지 않도록 스킵
+            embeddings.append([0.0] * 768)
 
-    if not content.strip():
-        print(f"[RAG] File {file_path} is empty.")
-        return [], []  # 파일은 있으나 내용 없음
-
-    data_items, embeddings = [], []
-
-    # 3) JSONL 모드
-    if file_path.endswith(".jsonl"):
-        total_lines = 0
-        parsed = 0
-        embedded = 0
-
-        for line_no, line in enumerate(content.strip().split("\n"), start=1):
-            total_lines += 1
-            line = line.strip()
-            if not line:
-                continue
-
-            try:
-                item = json.loads(line)
-                parsed += 1
-            except json.JSONDecodeError as e:
-                print(f"[RAG][JSONL] Parse error {file_path}:{line_no} → {e}")
-                continue
-
-            # 'rag_index' 필드를 '임베딩' (핵심!)
-            text_to_embed = item.get("rag_index")
-            if not text_to_embed:
-                print(f"[RAG][JSONL] Missing 'rag_index' at {file_path}:{line_no}")
-                continue
-
-            ebd = embed_text(text_to_embed, task_type="retrieval_document")
-            if ebd:
-                embeddings.append(ebd)
-                data_items.append(item)  # 전체 객체 저장
-                embedded += 1
-            else:
-                print(f"[RAG][JSONL] Embedding failed at {file_path}:{line_no}")
-
-        print(
-            f"[RAG][JSONL] {file_path} → lines={total_lines}, parsed={parsed}, embedded={embedded}"
-        )
-
-    # 4) TXT 모드 (법령 데이터 및 하위 호환성)
-    elif separator_regex:
-        chunks = re.split(separator_regex, content)
-        raw_items = [p.strip() for p in chunks if p and p.strip()]
-        print(f"[RAG][TXT] {file_path} → chunks={len(raw_items)}")
-        for item_text in raw_items:
-            ebd = embed_text(item_text, task_type="retrieval_document")
-            if ebd:
-                embeddings.append(ebd)
-                data_items.append({"rag_index": item_text, "raw_text": item_text})
-
-    print(f"[RAG] Loaded {len(data_items)} items from {file_path}.")
-    return data_items, embeddings
+    return np.array(embeddings, dtype=np.float32)
 
 
-def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.50):
-    """'사건'과 '가장' '유사한' '총알' 3개를 '발사'한다."""
-    if not embeddings or not items:
-        return []
-    q_emb = embed_text(query_text, task_type="retrieval_query")
-    if q_emb is None:
+def load_and_embed_precedents() -> Tuple[List[str], np.ndarray]:
+    precedents = load_precedents(RAW_URL)
+    embeddings = embed_precedents(precedents)
+    return precedents, embeddings
+
+
+# -----------------------------
+# 2. 유사 판례 검색
+# -----------------------------
+def search_similar_cases(
+    query: str,
+    precedents: List[str],
+    embeddings: np.ndarray,
+    top_k: int = 5,
+) -> List[Tuple[int, float, str]]:
+    if embeddings.size == 0 or not precedents:
         return []
 
-    # 'NumPy'를 '사용'한 '벡터' '내적' '연산' (코사인 유사도)
-    sims = np.dot(np.array(embeddings), np.array(q_emb))
-    idxs = np.argsort(sims)[::-1][:top_k]
+    # 질의 임베딩
+    res = genai.embed_content(
+        model=EMBED_MODEL,
+        content=query,
+    )
+    q_emb = np.array(res["embedding"], dtype=np.float32)
 
-    results = []
-    for i in idxs:
-        if float(sims[i]) >= threshold:
-            # '결과'에 '전체' '객체'와 '유사도'를 '저장'
-            result_item = items[i].copy()
-            result_item["similarity"] = float(sims[i])
-            results.append(result_item)
+    # cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1) * (np.linalg.norm(q_emb) + 1e-8)
+    sims = embeddings @ q_emb / (norms + 1e-8)
+
+    idx_scores = list(enumerate(sims.tolist()))
+    idx_scores.sort(key=lambda x: x[1], reverse=True)
+    idx_scores = idx_scores[:top_k]
+
+    results: List[Tuple[int, float, str]] = []
+    for idx, score in idx_scores:
+        results.append((idx, score, precedents[idx]))
     return results
 
 
-# --- ★★★ '삭제'된 '유틸리티' '함수' '심장' '이식' ★★★ ---
-def _is_menu_input(s: str) -> bool:
-    """'입력'이 '단순' '숫자' '메뉴' '선택'인지 '판단'한다."""
-    return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
+def build_rag_context(similar_cases: List[Tuple[int, float, str]]) -> str:
+    if not similar_cases:
+        return ""
+
+    parts = []
+    for rank, (idx, score, text) in enumerate(similar_cases, start=1):
+        header = f"[유사 판례 {rank}] (score={score:.3f})\n"
+        parts.append(header + text.strip())
+    return "\n\n-----\n\n".join(parts)
 
 
-def _is_final_report(txt: str) -> bool:
-    """'응답'이 '최종 보고서' '형식'인지 '판단'한다."""
-    return "전략 브리핑 보고서" in txt
+# -----------------------------
+# 3. LLM 호출
+# -----------------------------
+def call_llm(prompt: str) -> str:
+    model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+    resp = model.generate_content(prompt)
+    return resp.text or ""
 
 
-def _query_title(prompt_text: str) -> str:
-    """'RAG' '시각화'에 '사용'할 '쿼리' '제목'을 '추출'한다."""
-    if len(prompt_text) > 70:
-        return prompt_text[:67] + "..."
-    return prompt_text
+# -----------------------------
+# 4. Streamlit UI
+# -----------------------------
+st.set_page_config(
+    page_title="IMD Mirage · 형사/민사 판례 RAG 엔진",
+    layout="wide",
+)
 
+st.title("IMD Mirage · 형사/민사 판례 RAG 엔진")
 
-def update_active_module(response_text):
-    """'뇌(EPE)'의 '응답'에서 '현재' '활성화'된 '모듈' '이름'을 '추출'한다."""
-    match = re.search(r"\[(.+?)\]' 모듈을 활성화합니다", response_text)
-    if match:
-        st.session_state.active_module = match.group(1).strip()
-    elif "Phase 0" in response_text:
-        st.session_state.active_module = "Phase 0 (도메인 선택)"
+st.markdown(
+    """
+사실관계와 고민을 아래에 적으면,  
+내부 판례 데이터(RAG)를 검색해서 **유사 판례 + 종합 코멘트**를 생성합니다.
+"""
+)
 
+# 세션 상태 초기화
+if "precedents" not in st.session_state or "embeddings" not in st.session_state:
+    with st.spinner("탄약고(RAG) 장전 중..."):
+        precedents, embeddings = load_and_embed_precedents()
+        st.session_state.precedents = precedents
+        st.session_state.embeddings = embeddings
 
-# --- 4. 시스템 프라임 유전자 (Prime Genome) 로드 및 초기화 ---
-try:
-    with open("system_prompt.txt", "r", encoding="utf-8") as f:
-        SYSTEM_INSTRUCTION = f.read()
-    if len(SYSTEM_INSTRUCTION) < 100:
-        raise ValueError("System prompt is too short.")
-except (FileNotFoundError, ValueError) as e:
-    st.error(f"치명적 오류: 시스템 코어(system_prompt.txt) 로드 실패. {e}")
-    st.stop()
+col_left, col_right = st.columns([2, 1])
 
-if "model" not in st.session_state:
-    try:
-        st.session_state.model = genai.GenerativeModel(
-            "models/gemini-2.5-flash",
-            system_instruction=SYSTEM_INSTRUCTION
-        )
-
-        # [★수정됨★] 듀얼 RAG 초기화 (JSONL + TXT)
-        with st.spinner("분석 엔진(Dual RAG) 초기화 중... (최초 실행 시)"):
-            # 1. 판례 데이터 로드 (P-RAG) - JSONL 우선, TXT 폴백
-            p_data, p_emb = load_and_embed_data("precedents_data.jsonl")
-
-            if p_data is None:
-                # 진짜로 파일이 없거나 읽기 자체가 실패한 경우에만 폴백
-                st.warning(
-                    "경고: 'precedents_data.jsonl' 파일을 찾을 수 없거나 읽기 오류가 발생했습니다. 'txt' 파일로 폴백합니다."
-                )
-                p_data, p_emb = load_and_embed_data(
-                    "precedents_data.txt",
-                    r"\s*---END OF PRECEDENT---\s*"
-                )
-            elif isinstance(p_data, list) and len(p_data) == 0:
-                # 파일은 읽었는데 유효한 판례가 0건인 경우 → 포맷/임베딩 문제일 가능성
-                st.info(
-                    "ℹ️ 'precedents_data.jsonl'은 로드되었으나 유효한 판례 항목이 없습니다. JSONL 형식과 'rag_index' 및 임베딩 오류 로그를 확인하세요."
-                )
-
-            st.session_state.precedents = p_data or []
-            st.session_state.p_embeddings = p_emb or []
-
-            # 2. 법령 데이터 로드 (S-RAG) - TXT 방식 유지 (없으면 그냥 빈 리스트)
-            s_data, s_emb = load_and_embed_data(
-                "statutes_data.txt",
-                r"\s*---END OF STATUTE---\s*"
-            )
-            st.session_state.statutes = s_data or []
-            st.session_state.s_embeddings = s_emb or []
-
-        st.session_state.active_module = "초기 상태 (미정의)"
-
-    except Exception as e:
-        st.error(f"시스템 초기화 실패: {e}")
-        st.stop()
-
-# --- 5. 대화 세션 관리 및 자동 시작 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-    # '초기' '프롬프트'를 '여기'서 '실행' (v7.5 교리)
-    with st.spinner("Architect 시스템 가동..."):
-        try:
-            initial_prompt = (
-                "시스템 가동. '동적 라우팅 프로토콜'을 실행하여 Phase 0를 시작하라."
-            )
-            chat = st.session_state.model.start_chat(history=[])
-            response = chat.send_message(initial_prompt)
-            st.session_state.messages.append(
-                {"role": "Architect", "content": response.text}
-            )
-            st.session_state.chat = chat
-            update_active_module(response.text)
-        except Exception as e:
-            st.error(f"시스템 초기화 실패: {e}")
-            st.stop()
-
-# --- 6. 대화 기록 표시 ---
-for message in st.session_state.messages:
-    role_name = "Client" if message["role"] == "user" else "Architect"
-    avatar = "👤" if message["role"] == "user" else "🛡️"
-    with st.chat_message(role_name, avatar=avatar):
-        st.markdown(message["content"], unsafe_allow_html=True)
-
-# --- 7. 입력 및 응답 생성 (★핵심 수정: JSONL 기반 출력 및 릴레이★) ---
-
-
-def stream_and_store_response(
-    chat_session,
-    prompt_to_send,
-    spinner_text="Architect 시스템 연산 중...",
-):
-    """'뇌(EPE)'에 '명령'을 '전송'하고, '응답'을 '실시간' '출력' 및 '저장'한다."""
-    full_response = ""
-    start_time = time.time()
-
-    with st.chat_message("Architect", avatar="🛡️"):
-        response_placeholder = st.empty()
-        try:
-            with st.spinner(spinner_text):
-                response_stream = chat_session.send_message(
-                    prompt_to_send,
-                    stream=True
-                )
-
-                for chunk in response_stream:
-                    # '안전' '필터'가 '작동'하면 '즉시' '중단'
-                    if not chunk.parts:
-                        full_response = (
-                            "[시스템 경고: 응답이 '안전 필터'에 의해 '차단'되었습니다.]"
-                        )
-                        response_placeholder.error(full_response)
-                        break
-
-                    full_response += chunk.text
-                    # '타이핑' '효과'
-                    response_placeholder.markdown(
-                        full_response + "▌",
-                        unsafe_allow_html=True
-                    )
-
-            # '타이핑' '효과' '제거'
-            response_placeholder.markdown(
-                full_response,
-                unsafe_allow_html=True
-            )
-
-        except Exception as e:
-            full_response = f"[치명적 오류: {e}]"
-            response_placeholder.error(full_response)
-
-    # '세션'에 '최종' '응답' '저장'
-    st.session_state.messages.append(
-        {"role": "Architect", "content": full_response}
+with col_left:
+    user_input = st.text_area(
+        "① 사실관계 / 사건 개요를 입력하세요.",
+        height=220,
+        placeholder="예) 2024. 5. 3. 밤 11시경, 술자리 이후 대리운전 호출했으나...",
     )
 
-    # 모듈 상태 갱신
-    update_active_module(full_response)
-
-    end_time = time.time()
-    print(f"Response time: {end_time - start_time:.2f}s")
-    return full_response
-
-
-# 메인 입력 루프
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("Client", avatar="👤"):
-        st.markdown(prompt, unsafe_allow_html=True)
-
-    # '날것(Raw Data)' '입력' '단계' '감지' (Phase 2)
-    is_data_ingestion_phase = "Phase 2" in st.session_state.active_module
-
-    # Contextual RAG 실행
-    rag_context = ""
-    similar_precedents = []
-
-    # '메뉴' '선택'이 '아니'거나, 'Phase 2' '데이터' '입력'이 '아닐' '때'만 'RAG' '실행'
-    if not _is_menu_input(prompt) and not is_data_ingestion_phase:
-
-        # '컨텍스트' '쿼리' '생성'
-        contextual_query = (
-            f"현재 활성화된 모듈: {st.session_state.active_module}. "
-            f"사용자 질문: {prompt}"
-        )
-
-        with st.spinner("실시간 데이터베이스 분석 중... (Dual RAG: 판례/법령)..."):
-            # 1. 법령 검색 (S-RAG)
-            if "statutes" in st.session_state and st.session_state.statutes:
-                similar_statutes = find_similar_items(
-                    contextual_query,
-                    st.session_state.statutes,
-                    st.session_state.s_embeddings,
-                    top_k=3,
-                    threshold=0.75,
-                )
-                if similar_statutes:
-                    s_texts = [
-                        f"[유사도: {c['similarity']:.2f}]\n"
-                        f"{c.get('rag_index', '내용 없음')}\n---\n"
-                        for c in similar_statutes
-                    ]
-                    rag_context += (
-                        "\n\n[시스템 참조: 검색된 관련 법령 데이터]\n"
-                        + "\n".join(s_texts)
-                    )
-
-            # 2. 판례 검색 (P-RAG)
-            if "precedents" in st.session_state and st.session_state.precedents:
-                similar_precedents = find_similar_items(
-                    contextual_query,
-                    st.session_state.precedents,
-                    st.session_state.p_embeddings,
-                    top_k=5,
-                    threshold=0.75,
-                )
-                if similar_precedents:
-                    p_texts = [
-                        f"[유사도: {c['similarity']:.2f}]\n"
-                        f"{c.get('rag_index', '내용 없음')}\n---\n"
-                        for c in similar_precedents
-                    ]
-                    rag_context += (
-                        "\n\n[시스템 참조: 검색된 유사 판례 데이터]\n"
-                        + "\n".join(p_texts)
-                    )
-
-    # 최종 프롬프트 구성 및 시스템 응답 생성
-    final_prompt = f"{prompt}\n{rag_context}"
-    current_response = stream_and_store_response(
-        st.session_state.chat,
-        final_prompt
+    extra_instr = st.text_area(
+        "② 추가 요청(보고서 형식, 불기소 전략 강조 등)이 있으면 적어주세요.",
+        height=120,
+        placeholder="예) 불기소(혐의없음)를 1순위 목표로, 판례 인용을 중심으로 의견서 구조로 써줘.",
     )
 
-    # [★핵심 수정★] 판례 시각화 및 원문 보기 기능 (JSONL 기반)
-    clean_response = re.sub(
-        "<[^<]+?>",
-        "",
-        current_response
-    )  # 'HTML' '쓰레기' '제거'
+    run_btn = st.button("⚖️ 판례 검색 + 전략 리포트 생성", type="primary")
 
-    if _is_final_report(clean_response) and similar_precedents:
-        q_title = _query_title(prompt)
-        st.markdown(
-            f"**📚 실시간 판례 전문 분석 (P-RAG 결과)**\n\n"
-            f"* 검색 쿼리: `[{q_title}]`\n"
+with col_right:
+    st.subheader("RAG 옵션")
+    top_k = st.slider("유사 판례 개수", min_value=3, max_value=10, value=5, step=1)
+    show_cases = st.checkbox("유사 판례 원문도 같이 보기", value=True)
+
+    st.markdown("---")
+    st.markdown("**RAG 상태**")
+    st.write(f"판례 개수: {len(st.session_state.precedents)}건")
+    st.write(f"임베딩 shape: {tuple(st.session_state.embeddings.shape)}")
+
+if run_btn and user_input.strip():
+    precedents = st.session_state.precedents
+    embeddings = st.session_state.embeddings
+
+    with st.spinner("유사 판례 검색 및 리포트 생성 중..."):
+        similar_cases = search_similar_cases(
+            query=user_input,
+            precedents=precedents,
+            embeddings=embeddings,
+            top_k=top_k,
+        )
+        rag_ctx = build_rag_context(similar_cases)
+
+        system_guide = """
+당신은 형사/민사 전문 변호사를 보조하는 AI 어시스턴트입니다.
+1) 먼저 사건의 '핵심 쟁점'을 정리하고,
+2) RAG로 제공된 유사 판례를 요약·비교한 뒤,
+3) 의뢰인이 실무에서 바로 쓸 수 있는 '실행 전략' 중심으로 정리하세요.
+4) 감정 호소가 아니라, 객관적 자료·논리 구조 중심으로 설명합니다.
+"""
+        full_prompt = (
+            system_guide
+            + "\n\n[사건 개요]\n"
+            + user_input.strip()
+            + "\n\n[추가 요청]\n"
+            + (extra_instr.strip() or "특이 요청 없음.")
+            + "\n\n[내부 유사 판례 모음(RAG)]\n"
+            + (rag_ctx or "유사 판례를 찾지 못했습니다. 일반적인 법리 중심으로 답변하세요.")
         )
 
-        for case_data in similar_precedents[:3]:  # '상위' 3개만 '시각화'
-            # 메타데이터 추출
-            sim_pct = int(round(case_data["similarity"] * 100))
-            title = case_data.get("title", "제목 없음")
-            case_no = case_data.get("case_no", case_data.get("id", ""))
-            court = case_data.get("court", "")
-            date = case_data.get("date", "")
-            url = case_data.get("url")
-            full_text = case_data.get(
-                "full_text",
-                case_data.get("raw_text")
-            )  # '전문' 또는 'TXT' '폴백'
+        answer = call_llm(full_prompt)
 
-            label = f"판례 [{title}]"
-            if court and case_no:
-                label += f" — {court} {case_no}"
+    st.subheader("🔎 종합 전략 리포트")
+    st.write(answer)
 
-            # 요약 카드
-            summary = case_data.get("rag_index", "요약 내용 없음")
-            if len(summary) > 200:
-                summary = summary[:197] + "..."
+    if show_cases and similar_cases:
+        st.subheader("📚 참조된 유사 판례")
+        for rank, (idx, score, text) in enumerate(similar_cases, start=1):
+            with st.expander(f"유사 판례 {rank} (score={score:.3f})"):
+                st.write(text)
 
-            action_link = f"[🔗 원문 링크 보기]({url})" if url else ""
-
-            item_md = (
-                f"* **{label}**\n"
-                f"  - 선고: {date} | 유사도: {sim_pct}% | {action_link}\n"
-                f"  - 내용 요약 (RAG Index): {summary}"
-            )
-            st.markdown(item_md)
-
-            # 원문 보기
-            if full_text:
-                with st.expander("📄 판례 전문 보기"):
-                    st.text(full_text)
-
-    elif (
-        _is_final_report(clean_response)
-        and not _is_menu_input(prompt)
-        and not similar_precedents
-    ):
-        st.info(
-            "ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.75)"
-        )
+elif run_btn and not user_input.strip():
+    st.warning("사건 개요를 먼저 입력해주세요.")
