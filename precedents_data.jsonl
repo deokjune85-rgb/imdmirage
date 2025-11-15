@@ -1,8 +1,139 @@
-{"id": "2005도7120", "rag_index": "유사수신행위의 규제에 관한 법률 위반. 금융감독위원회 인가 없이 사실상 신탁업 형태로 불특정다수인에게 원금 보장과 초과 수익을 약정하며 자금을 조달한 경우 유사수신행위에 해당한다고 본 판례. 상가 지분 분양·임대료 지급 외형을 취해도 실질이 출자금 전액 또는 초과 지급 약정이면 유사수신으로 평가되며, 피고인들의 위법성 인식 부정 주장(법률의 착오)도 받아들이지 않고 공동정범 책임을 인정한 사례."}
-{"id": "2013도6285", "rag_index": "도로교통법상 음주운전 사건에서 운전 시점과 혈중알코올농도 측정 시점 사이에 시간 간격이 있고 상승기 여부가 문제 된 사안. 운전 당시 혈중알코올농도가 처벌기준치를 초과했는지는 운전·측정 사이 시간, 측정 수치와 기준치 차이, 음주량·시간, 운전자의 태도, 사고 경위 등 모든 사정을 종합해 논리와 경험칙으로 판단해야 한다고 설시. 예비적 공소사실 부분에 대한 무죄 판단에 법리 오해가 있어 원심을 파기환송한 판례."}
-{"id": "2017도10815", "rag_index": "구 도로교통법상 ‘운전’의 의미를 명확히 한 판례. 자동차 운전에 해당하려면 단순히 엔진 시동만으로는 부족하고, 기어 조작·제동장치 해제 등 발진조작이 완료되어야 한다고 판단. 다만 차량이 고장 등으로 객관적으로 발진할 수 없는 상태라면 이러한 발진조작을 완료했다고 볼 수 없어 ‘운전’이 성립하지 않는다며 무죄 판단을 유지한 사례."}
-{"id": "2013도8481", "rag_index": "도로교통법상 음주측정불응죄에서 ‘경찰공무원의 측정에 응하지 아니한 경우’의 의미를 구체화한 판례. 술에 취한 상태로 의심되는 운전자가 음주측정에 응할 의사가 없음이 전체 경과에 비추어 객관적으로 명백한 때에만 성립하고, 일시적·부분적 거부만으로는 부족하다고 보았다. 또한 위법한 체포·연행 상태에서 이루어진 음주측정 요구에 대한 불응은 처벌할 수 없다고 하여, 파출소 및 경찰서에서의 측정불응 공소사실 모두에 대해 무죄를 인정한 사건."}
-{"id": "2017도17762", "rag_index": "무면허운전이 성립하려면 운전 장소가 도로교통법 제2조 제1호의 ‘도로’에 해당해야 한다는 점을 명확히 한 판례. 아파트 단지 내 지하주차장과 같이 특정인 또는 그와 관련된 사람만 사용하고 자체적으로 관리되는 공간은 경우에 따라 도로성이 인정되지 않을 수 있어, 그곳에서의 운전은 무면허운전에 해당하지 않을 여지가 있다고 보았다. 이 사건 주차장의 도로 해당성에 대한 심리가 부족했다며 유죄 판단을 파기환송한 사례."}
-{"id": "2007도2919", "rag_index": "교통사고 후 도주한 사건에서 운전자와 동승자의 책임을 구분한 판례. 동승자가 사고 후 운전자와 공모하여 도주행위에 가담했다 하더라도, 특별한 사정이 없는 한 특정범죄가중처벌 등에 관한 법률상 도주차량죄의 공동정범으로 처벌할 수 없다고 판시하였다. 과실범의 공동정범 성립 요건을 엄격하게 보아 동승자에 대한 도주차량죄 공동정범 책임을 부정한 사례."}
-{"id": "2022도13430", "rag_index": "전동킥보드 등 개인형 이동장치가 구 특정범죄 가중처벌 등에 관한 법률 제5조의11 제1항의 ‘원동기장치자전거’에 포함되는지 문제된 사안. 도로교통법 개정으로 개인형 이동장치가 ‘자전거 등’으로 분류되었더라도 이는 통행방법 규율을 위한 입법기술상의 분류에 불과하고, 여전히 원동기장치자전거 범주에 포함된다고 보았다. 따라서 개정으로 인해 범죄가 비범죄화되었다고 볼 수 없고, 음주 또는 약물 영향 하 전동킥보드 운전도 위험운전치상 적용 대상이 된다고 판시한 사건."}
-{"id": "2024가합67890", "rag_index": "서울중앙지법 2024가합67890 가상 사례. 피고가 AI 봇을 이용한 코인 투자 상품을 내세우며 ‘월 10% 확정 수익 보장’ 등을 홍보했으나, 실제로는 신규 투자금으로 기존 투자자에게 이자를 지급하는 폰지 구조였던 사안. 법원은 기망에 의한 투자 유치로 사기와 유사수신행위법 위반을 인정하고, 피해 투자자들에 대한 손해배상 책임을 인정한 취지의 설정 사례로 사용 가능."}
+import requests
+import json
+import math
+import xml.etree.ElementTree as ET
+import time
+
+# ===== 설정값 =====
+OC = "deokjune"               # 네 OC ID
+QUERY = "음주운전"             # 검색 키워드
+TARGET = "prec"
+TYPE = "XML"
+BASE_URL = "http://www.law.go.kr/DRF"
+OUTPUT_FILE = "precedents_data.jsonl"  # RAG에서 쓰던 파일명 그대로
+
+# ===== 공통 유틸 =====
+def safe_text(node):
+    if node is None:
+        return ""
+    # 자식 포함 전체 텍스트
+    return "".join(node.itertext()).strip()
+
+def get_child_text(parent, tag):
+    if parent is None:
+        return ""
+    node = parent.find(tag)
+    return safe_text(node)
+
+def fetch_search_page(page=1):
+    params = {
+        "OC": OC,
+        "target": TARGET,
+        "type": TYPE,
+        "query": QUERY,
+        "page": page,
+        # display 안 먹으면 무시되더라도 상관 없음
+        "display": 100,
+    }
+    resp = requests.get(f"{BASE_URL}/lawSearch.do", params=params, timeout=10)
+    resp.raise_for_status()
+    resp.encoding = "utf-8"
+    return resp.text
+
+def fetch_detail_xml(prec_id):
+    params = {
+        "OC": OC,
+        "target": TARGET,
+        "type": TYPE,
+        "ID": prec_id,
+    }
+    resp = requests.get(f"{BASE_URL}/lawService.do", params=params, timeout=10)
+    resp.raise_for_status()
+    resp.encoding = "utf-8"
+    return resp.text
+
+# ===== 메인 로직 =====
+def main():
+    # 1페이지 먼저 호출해서 totalCnt / 페이지 수 계산
+    first_xml = fetch_search_page(page=1)
+    root = ET.fromstring(first_xml)
+
+    total_cnt_text = root.findtext("totalCnt", "0")
+    try:
+        total_cnt = int(total_cnt_text)
+    except ValueError:
+        total_cnt = 0
+
+    first_precs = root.findall("prec")
+    per_page = len(first_precs) if len(first_precs) > 0 else 20
+    total_pages = math.ceil(total_cnt / per_page) if per_page > 0 else 1
+
+    print(f"[INFO] totalCnt={total_cnt}, per_page={per_page}, pages={total_pages}")
+
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        # 첫 페이지 처리
+        pages_roots = [(1, root)]
+
+        # 나머지 페이지들 가져오기
+        for p in range(2, total_pages + 1):
+            xml_text = fetch_search_page(page=p)
+            r = ET.fromstring(xml_text)
+            pages_roots.append((p, r))
+            time.sleep(0.2)  # 너무 폭격하지 않도록 살짝 쉼
+
+        # 각 페이지 순회
+        for page_num, page_root in pages_roots:
+            prec_list = page_root.findall("prec")
+            print(f"[INFO] page {page_num}: {len(prec_list)} precedents")
+
+            for prec in prec_list:
+                prec_id = get_child_text(prec, "판례일련번호")
+                case_name = get_child_text(prec, "사건명")
+                case_number = get_child_text(prec, "사건번호")
+                decision_date = get_child_text(prec, "선고일자")
+                court_name = get_child_text(prec, "법원명")
+                case_type = get_child_text(prec, "사건종류명")
+                judgment_type = get_child_text(prec, "판결유형")
+                decision_kind = get_child_text(prec, "선고")
+                data_source = get_child_text(prec, "데이터출처명")
+
+                # 상세 XML 호출
+                detail_xml = fetch_detail_xml(prec_id)
+                droot = ET.fromstring(detail_xml)
+
+                # 주요 본문 필드 모아서 content 하나로 합치기
+                parts = []
+                for tag in ["판시사항", "판결요지", "참조조문", "참조판례", "판례내용"]:
+                    txt = get_child_text(droot, tag)
+                    if txt:
+                        parts.append(f"[{tag}]\n{txt}")
+
+                full_content = "\n\n".join(parts).strip()
+
+                # law.go.kr PC용 대략적인 원문 URL (precSeq=판례일련번호)
+                source_url = f"https://www.law.go.kr/precInfoP.do?precSeq={prec_id}"
+
+                record = {
+                    "id": f"prec_{prec_id}",
+                    "keyword": QUERY,
+                    "title": case_name,
+                    "case_number": case_number,
+                    "decision_date": decision_date,
+                    "court_name": court_name,
+                    "case_type": case_type,
+                    "judgment_type": judgment_type,
+                    "decision_kind": decision_kind,
+                    "data_source": data_source,
+                    "source_url": source_url,
+                    "content": full_content,
+                }
+
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                print(f"[OK] prec_id={prec_id}")
+
+                time.sleep(0.1)  # 호출 간 살짝 딜레이
+
+    print(f"[DONE] Saved to {OUTPUT_FILE}")
+
+if __name__ == "__main__":
+    main()
