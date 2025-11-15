@@ -1,56 +1,53 @@
-# app.py
+# rag_loader.py
 
-from rag_loader import load_corpus_for_rag
+import os
 
-# ============================
-# 1) 앱 시작할 때 한 번만 판례 전부 로딩
-# ============================
-print("판례 TXT 로딩 중...")
-CORPUS = load_corpus_for_rag()
-print(f"총 {len(CORPUS)}건 로딩 완료.\n")
+# 판례/법령을 모아둔 TXT 파일 경로
+TXT_PATH = "precedents_data.txt"
 
 
-# ============================
-# 2) 존나 단순한 검색기 (포함 여부만 체크)
-#    - 나중에 여기만 벡터스토어/임베딩으로 바꾸면 됨
-# ============================
-def search_precedents(query: str, top_k: int = 5):
+def load_precedents_text(path: str = TXT_PATH) -> str:
     """
-    초간단 버전:
-    - query 문자열이 들어간 판례만 골라서 위에서부터 top_k개 잘라서 리턴
+    precedents_data.txt 전체 내용을 통으로 읽어오는 함수
     """
-    results = []
-    for doc in CORPUS:
-        if query in doc:
-            results.append(doc)
-        if len(results) >= top_k:
-            break
-    return results
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"판례 TXT 파일을 찾을 수 없습니다: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
-# ============================
-# 3) 터미널에서 테스트용 REPL
-# ============================
-if __name__ == "__main__":
-    print("판례 검색 테스트 모드입니다.")
-    print("예: 음주운전 / 유사수신 / 사기 이런 식으로 쳐봐.")
-    print("그만하려면 그냥 엔터 두 번.\n")
+def split_precedents(raw_text: str):
+    """
+    TXT 저장 포맷 기준으로 한 건씩 쪼갠다.
 
-    while True:
-        q = input("질문(키워드): ").strip()
-        if not q:
-            break
+    각 판례/법령 블록을 다음 형식으로 저장했다고 가정:
+    ==== PRECEDENT START ====
+    (여기에 한 건 전체 내용)
+    ==== PRECEDENT END ====
+    """
+    docs = []
+    chunks = raw_text.split("==== PRECEDENT START ====")
 
-        hits = search_precedents(q, top_k=3)
-
-        if not hits:
-            print("\n[결과 없음]\n")
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
             continue
 
-        print("\n================ 검색 결과 ================\n")
-        for i, doc in enumerate(hits, 1):
-            print(f"[{i}] ----------------------------------------")
-            # 너무 기니까 앞부분만 맛보기
-            print(doc[:1500])
-            print("\n(생략)\n")
-        print("===========================================\n")
+        # 끝 표시 기준으로 자르기
+        if "==== PRECEDENT END ====" in chunk:
+            chunk = chunk.split("==== PRECEDENT END ====")[0].strip()
+
+        if chunk:
+            docs.append(chunk)
+
+    return docs
+
+
+def load_corpus_for_rag():
+    """
+    RAG에서 쓸 말뭉치 리스트를 반환한다.
+    나머지는 app.py에서 CORPUS = load_corpus_for_rag() 로 써먹으면 됨.
+    """
+    raw = load_precedents_text()
+    docs = split_precedents(raw)
+    return docs
