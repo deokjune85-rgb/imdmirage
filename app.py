@@ -163,13 +163,29 @@ if "model" not in st.session_state:
                                                     system_instruction=SYSTEM_INSTRUCTION)
         
         # [★수정됨★] 듀얼 RAG 초기화 (JSONL + TXT)
-        with st.spinner("분석 엔진(Dual RAG) 초기화 중... (최초 실행 시)"):
-            # 1. 판례 데이터 로드 (P-RAG) - JSONL 우선, TXT 폴백
+               with st.spinner("분석 엔진(Dual RAG) 초기화 중... (최초 실행 시)"):
+            # 1. 판례 데이터 로드 (P-RAG)
+            #    - JSONL 시도
             p_data, p_emb = load_and_embed_data('precedents_data.jsonl')
+
+            # JSONL이 없거나 비어 있으면 그냥 조용히 TXT 사용 (경고 안 띄움)
             if not p_data:
-                 # JSONL이 없거나 비었으면 TXT 시도
-                 st.warning("경고: 'precedents_data.jsonl' '로드' '실패'. 'txt' '파일'로 '폴백'합니다.")
-                 p_data, p_emb = load_and_embed_data('precedents_data.txt', r'\s*---END OF PRECEDENT---\s*')
+                p_data, p_emb = load_and_embed_data(
+                    'precedents_data.txt',
+                    r'\s*---END OF PRECEDENT---\s*'
+                )
+
+            st.session_state.precedents = p_data
+            st.session_state.p_embeddings = p_emb
+
+            # 2. 법령 데이터 로드 (S-RAG) - TXT
+            s_data, s_emb = load_and_embed_data(
+                'statutes_data.txt',
+                r'\s*---END OF STATUTE---\s*'
+            )
+            st.session_state.statutes = s_data
+            st.session_state.s_embeddings = s_emb
+
 
             st.session_state.precedents = p_data
             st.session_state.p_embeddings = p_emb
