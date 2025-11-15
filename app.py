@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import google.generativeai as genai
 import requests
@@ -16,45 +15,23 @@ if not API_KEY:
 
 genai.configure(api_key=API_KEY)
 
-JSONL_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.jsonl"
-TXT_URL    = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+TXT_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
 
 EMBED_MODEL = "models/text-embedding-004"
 CHAT_MODEL  = "models/gemini-1.5-pro"
 
 
 # -----------------------------
-# 1. 판례 로딩 (jsonl → txt 폴백)
+# 1. 판례 로딩 (txt만 사용)
 # -----------------------------
 @st.cache_data(show_spinner="판례 데이터 불러오는 중...")
 def load_precedents() -> List[str]:
-    blocks: List[str] = []
+    r = requests.get(TXT_URL, timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f"'precedents_data.txt' 로드 실패 (status={r.status_code})")
 
-    # 1) jsonl 시도
-    try:
-        r = requests.get(JSONL_URL, timeout=30)
-        if r.status_code == 200:
-            for line in r.text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                txt = obj.get("text") or obj.get("content") or ""
-                if txt.strip():
-                    blocks.append(txt.strip())
-        else:
-            raise RuntimeError(f"jsonl status={r.status_code}")
-    except Exception:
-        st.warning("경고: 'precedents_data.jsonl' 로드 실패. 'txt' 파일로 폴백합니다.")
-
-    # 2) jsonl 에서 아무 것도 못 읽었으면 txt 사용
-    if not blocks:
-        r = requests.get(TXT_URL, timeout=30)
-        if r.status_code != 200:
-            raise RuntimeError(f"'precedents_data.txt' 로드 실패 (status={r.status_code})")
-        raw = r.text.strip()
-        blocks = [b.strip() for b in raw.split("\n\n") if b.strip()]
-
+    raw = r.text.strip()
+    blocks = [b.strip() for b in raw.split("\n\n") if b.strip()]
     return blocks
 
 
@@ -66,7 +43,7 @@ def embed_precedents(precedents: List[str]) -> np.ndarray:
     if not precedents:
         return np.zeros((0, 0), dtype=np.float32)
 
-    # 임베딩 차원 먼저 한 번 조회
+    # 임베딩 차원 한 번 조회
     probe = genai.embed_content(
         model=EMBED_MODEL,
         content="임베딩 테스트",
@@ -236,4 +213,3 @@ if run_btn and user_input.strip():
 
 elif run_btn and not user_input.strip():
     st.warning("사건 개요를 먼저 입력해주세요.")
-```
