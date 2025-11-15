@@ -1,62 +1,100 @@
+```python
 import streamlit as st
 import google.generativeai as genai
 import requests
+import json
 import numpy as np
 from typing import List, Tuple
+import os
 
 # -----------------------------
-# 0. 기본 설정
+# 기본 세팅
 # -----------------------------
-API_KEY = st.secrets["GOOGLE_API_KEY"]
+API_KEY = st.secrets.get("GOOGLE_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+if not API_KEY:
+    raise RuntimeError("GOOGLE_API_KEY 를 st.secrets 또는 환경변수에 넣어주세요.")
+
 genai.configure(api_key=API_KEY)
 
-RAW_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
-EMBED_MODEL = "text-embedding-004"
+JSONL_URL = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.jsonl"
+TXT_URL    = "https://raw.githubusercontent.com/deokjune85-rgb/imdmirage/main/precedents_data.txt"
+
+EMBED_MODEL = "models/text-embedding-004"
+CHAT_MODEL  = "models/gemini-1.5-pro"
 
 
 # -----------------------------
-# 1. 판례 로딩 + 임베딩
+# 1. 판례 로딩 (jsonl → txt 폴백)
 # -----------------------------
 @st.cache_data(show_spinner="판례 데이터 불러오는 중...")
-def load_precedents(raw_url: str) -> List[str]:
-    resp = requests.get(raw_url, timeout=30)
-    if resp.status_code != 200:
-        raise RuntimeError(f"판례 원본을 불러오지 못했습니다 (status={resp.status_code}).")
-    text = resp.text.strip()
-    # 빈 줄(두 줄 이상 공백) 기준으로 판례 블록 분리
-    blocks: List[str] = [b.strip() for b in text.split("\n\n") if b.strip()]
+def load_precedents() -> List[str]:
+    blocks: List[str] = []
+
+    # 1) jsonl 시도
+    try:
+        r = requests.get(JSONL_URL, timeout=30)
+        if r.status_code == 200:
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                txt = obj.get("text") or obj.get("content") or ""
+                if txt.strip():
+                    blocks.append(txt.strip())
+        else:
+            raise RuntimeError(f"jsonl status={r.status_code}")
+    except Exception:
+        st.warning("경고: 'precedents_data.jsonl' 로드 실패. 'txt' 파일로 폴백합니다.")
+
+    # 2) jsonl 에서 아무 것도 못 읽었으면 txt 사용
+    if not blocks:
+        r = requests.get(TXT_URL, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"'precedents_data.txt' 로드 실패 (status={r.status_code})")
+        raw = r.text.strip()
+        blocks = [b.strip() for b in raw.split("\n\n") if b.strip()]
+
     return blocks
 
 
+# -----------------------------
+# 2. 판례 임베딩
+# -----------------------------
 @st.cache_resource(show_spinner="판례 임베딩 계산 중...")
 def embed_precedents(precedents: List[str]) -> np.ndarray:
     if not precedents:
-        return np.zeros((0, 768), dtype=np.float32)
+        return np.zeros((0, 0), dtype=np.float32)
 
-    embeddings: List[List[float]] = []
-    for chunk in precedents:
+    # 임베딩 차원 먼저 한 번 조회
+    probe = genai.embed_content(
+        model=EMBED_MODEL,
+        content="임베딩 테스트",
+    )
+    dim = len(probe["embedding"])
+
+    embs: List[List[float]] = []
+    for txt in precedents:
         try:
             res = genai.embed_content(
                 model=EMBED_MODEL,
-                content=chunk,
+                content=txt,
             )
-            emb = res["embedding"]
-            embeddings.append(emb)
+            embs.append(res["embedding"])
         except Exception:
-            # 한 건 실패해도 전체가 죽지 않도록 스킵
-            embeddings.append([0.0] * 768)
+            embs.append([0.0] * dim)
 
-    return np.array(embeddings, dtype=np.float32)
+    return np.array(embs, dtype=np.float32)
 
 
-def load_and_embed_precedents() -> Tuple[List[str], np.ndarray]:
-    precedents = load_precedents(RAW_URL)
+def load_and_embed() -> Tuple[List[str], np.ndarray]:
+    precedents = load_precedents()
     embeddings = embed_precedents(precedents)
     return precedents, embeddings
 
 
 # -----------------------------
-# 2. 유사 판례 검색
+# 3. 유사 판례 검색
 # -----------------------------
 def search_similar_cases(
     query: str,
@@ -67,14 +105,12 @@ def search_similar_cases(
     if embeddings.size == 0 or not precedents:
         return []
 
-    # 질의 임베딩
-    res = genai.embed_content(
+    q_res = genai.embed_content(
         model=EMBED_MODEL,
         content=query,
     )
-    q_emb = np.array(res["embedding"], dtype=np.float32)
+    q_emb = np.array(q_res["embedding"], dtype=np.float32)
 
-    # cosine similarity
     norms = np.linalg.norm(embeddings, axis=1) * (np.linalg.norm(q_emb) + 1e-8)
     sims = embeddings @ q_emb / (norms + 1e-8)
 
@@ -94,22 +130,21 @@ def build_rag_context(similar_cases: List[Tuple[int, float, str]]) -> str:
 
     parts = []
     for rank, (idx, score, text) in enumerate(similar_cases, start=1):
-        header = f"[유사 판례 {rank}] (score={score:.3f})\n"
-        parts.append(header + text.strip())
+        parts.append(f"[유사 판례 {rank}] (score={score:.3f})\n{text.strip()}")
     return "\n\n-----\n\n".join(parts)
 
 
 # -----------------------------
-# 3. LLM 호출
+# 4. LLM 호출
 # -----------------------------
 def call_llm(prompt: str) -> str:
-    model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+    model = genai.GenerativeModel(CHAT_MODEL)
     resp = model.generate_content(prompt)
-    return resp.text or ""
+    return (resp.text or "").strip()
 
 
 # -----------------------------
-# 4. Streamlit UI
+# 5. Streamlit UI
 # -----------------------------
 st.set_page_config(
     page_title="IMD Mirage · 형사/민사 판례 RAG 엔진",
@@ -125,12 +160,11 @@ st.markdown(
 """
 )
 
-# 세션 상태 초기화
 if "precedents" not in st.session_state or "embeddings" not in st.session_state:
     with st.spinner("탄약고(RAG) 장전 중..."):
-        precedents, embeddings = load_and_embed_precedents()
-        st.session_state.precedents = precedents
-        st.session_state.embeddings = embeddings
+        p, e = load_and_embed()
+        st.session_state.precedents = p
+        st.session_state.embeddings = e
 
 col_left, col_right = st.columns([2, 1])
 
@@ -202,3 +236,4 @@ if run_btn and user_input.strip():
 
 elif run_btn and not user_input.strip():
     st.warning("사건 개요를 먼저 입력해주세요.")
+```
