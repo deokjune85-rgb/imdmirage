@@ -1,4 +1,4 @@
-```python
+python
 # 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG
 
 import streamlit as st
