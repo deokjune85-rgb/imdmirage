@@ -251,9 +251,9 @@ except Exception as e:
     if 'response' in locals() and hasattr(response, 'text'):
         print(f"[Analysis Failure Debug] AI Response: {response.text[:1000]}")
     return None
----------------------------------------
+--------------------------------------
 4. 각종 유틸 함수
----------------------------------------
+--------------------------------------
 def _is_menu_input(s: str) -> bool: return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
 
 def _is_reset_keyword(s: str) -> bool: """처음으로/메인/초기화 키워드 감지""" keywords = ["처음", "메인", "초기화", "reset", "돌아가", "처음으로"] return any(kw in s.lower() for kw in keywords)
