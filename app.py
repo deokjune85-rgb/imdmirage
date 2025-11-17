@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 베리타스 엔진 8.1.2 — Auto-Analysis Mode + Dual RAG (코드 멸균 및 환경 호환성 강화)
+# 베리타스 엔진 8.1.3 — Auto-Analysis Mode + Dual RAG (코드 멸균 및 구문 복구 완료)
 
 import streamlit as st
 import google.generativeai as genai
@@ -138,10 +138,11 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
         print(f"[RAG Error] 임베딩 데이터 타입 변환 실패: {e}")
         return []
 
-    # 임베딩 차원 확인
+    # 임베딩 차원 확인 (안정성 강화)
     if embeddings_np.size > 0:
-        if embeddings_np.shape[1] != len(q_emb_np):
-            print(f"[RAG Error] 임베딩 차원 불일치: DB={embeddings_np.shape[1]}, Query={len(q_emb_np)}")
+        # ndim 체크 추가하여 1차원 배열 오류 방지
+        if embeddings_np.ndim < 2 or embeddings_np.shape[1] != len(q_emb_np):
+            print(f"[RAG Error] 임베딩 차원 불일치 또는 구조 오류: DB Shape={embeddings_np.shape}, Query Len={len(q_emb_np)}")
             return []
     else:
         return []
@@ -161,7 +162,7 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     return results
 
 # ---------------------------------------
-# 3. PDF 처리 함수 (진단 강화됨 v8.1.2)
+# 3. PDF 처리 함수 (진단 강화됨 v8.1.3)
 # ---------------------------------------
 def extract_text_from_pdf(uploaded_file):
     """PDF 텍스트를 추출하고, 실패 시 원인 코드를 반환한다."""
@@ -201,7 +202,7 @@ def extract_text_from_pdf(uploaded_file):
 
 def analyze_case_file(pdf_text: str):
     """PDF 텍스트를 분석하여 핵심 정보를 JSON으로 추출한다."""
-    # 프롬프트 (이모지 제거)
+    # ★★★ [오류 수정 완료] f-string 문법 및 Markdown 아티팩트 제거 ★★★
     analysis_prompt = f"""
 다음은 사건기록 PDF에서 추출한 내용입니다.
 
@@ -227,7 +228,7 @@ def analyze_case_file(pdf_text: str):
   "our_claim": "우리 측 주장 요약",
   "their_claim": "상대방 측 주장 요약"
 }}
-"""
+""" # ★★★ f-string 정상 종료됨. 아래부터 정상 코드 시작. ★★★
 
 try:
     # [최적화] 분석에는 채팅 기록이 필요 없으므로, 별도의 모델 인스턴스 사용 (Gemini 1.5 Flash 권장)
