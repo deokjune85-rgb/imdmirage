@@ -244,7 +244,7 @@ except (FileNotFoundError, ValueError) as e:
 if "model" not in st.session_state:
     try:
         st.session_state.model = genai.GenerativeModel(
-            "models/gemini-2.0-flash-exp",
+            "models/gemini-2.5-flash",
             system_instruction=SYSTEM_INSTRUCTION,
         )
         st.session_state.chat = st.session_state.model.start_chat(history=[])
