@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 베리타스 엔진 8.1.3 — Auto-Analysis Mode + Dual RAG (코드 멸균 및 구문 복구 완료)
+# 베리타스 엔진 8.1.4 — Auto-Analysis Mode + Dual RAG (Monolithic Sterile Version)
 
 import streamlit as st
 import google.generativeai as genai
@@ -162,7 +162,7 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     return results
 
 # ---------------------------------------
-# 3. PDF 처리 함수 (진단 강화됨 v8.1.3)
+# 3. PDF 처리 함수 (진단 강화됨 v8.1.4)
 # ---------------------------------------
 def extract_text_from_pdf(uploaded_file):
     """PDF 텍스트를 추출하고, 실패 시 원인 코드를 반환한다."""
@@ -202,7 +202,7 @@ def extract_text_from_pdf(uploaded_file):
 
 def analyze_case_file(pdf_text: str):
     """PDF 텍스트를 분석하여 핵심 정보를 JSON으로 추출한다."""
-    # ★★★ [오류 수정 완료] f-string 문법 및 Markdown 아티팩트 제거 ★★★
+    # ★★★ [구문 복구 완료] f-string 및 Markdown 아티팩트 제거 ★★★
     analysis_prompt = f"""
 다음은 사건기록 PDF에서 추출한 내용입니다.
 
