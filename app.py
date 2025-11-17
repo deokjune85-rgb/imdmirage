@@ -1,4 +1,4 @@
-python
+```python
 # 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG
 
 import streamlit as st
@@ -48,7 +48,6 @@ strong, b { font-weight: 700; }
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 상단 타이틀 + 경고
 st.title("베리타스 엔진 8.1")
 st.caption("The Architect — 전략 시뮬레이션 엔진")
 
@@ -74,7 +73,6 @@ except (KeyError, ValueError) as e:
 # ---------------------------------------
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-
 def embed_text(text: str, task_type: str = "retrieval_document"):
     clean_text = text.replace("\n", " ").strip()
     if not clean_text:
@@ -90,13 +88,8 @@ def embed_text(text: str, task_type: str = "retrieval_document"):
         print(f"[Embedding error] {e}")
         return None
 
-
 @st.cache_data(show_spinner=True)
 def load_and_embed_data(file_path: str, separator_regex: str = None):
-    """
-    - .jsonl: 줄 단위 JSON ➜ item['rag_index']를 임베딩
-    - .txt  : separator_regex 기준으로 쪼개서 임베딩
-    """
     if not os.path.exists(file_path):
         print(f"[RAG] File not found: {file_path}")
         return [], []
@@ -114,7 +107,6 @@ def load_and_embed_data(file_path: str, separator_regex: str = None):
     data_items = []
     embeddings = []
 
-    # JSONL
     if file_path.endswith(".jsonl"):
         for line in content.strip().split("\n"):
             line = line.strip()
@@ -134,7 +126,6 @@ def load_and_embed_data(file_path: str, separator_regex: str = None):
                 data_items.append(obj)
                 embeddings.append(emb)
 
-    # TXT
     elif separator_regex:
         parts = re.split(separator_regex, content)
         for p in parts:
@@ -148,7 +139,6 @@ def load_and_embed_data(file_path: str, separator_regex: str = None):
 
     print(f"[RAG] Loaded {len(data_items)} items from {file_path}")
     return data_items, embeddings
-
 
 def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     if not items or not embeddings:
@@ -172,14 +162,10 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
 
     return results
 
-
 # ---------------------------------------
 # 3. PDF 처리 함수
 # ---------------------------------------
 def extract_text_from_pdf(uploaded_file):
-    """
-    PDF에서 텍스트 추출
-    """
     try:
         pdf_reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
@@ -196,11 +182,7 @@ def extract_text_from_pdf(uploaded_file):
         st.error(f"PDF 처리 실패: {e}")
         return None
 
-
 def analyze_case_file(pdf_text: str, model):
-    """
-    PDF 내용을 분석하여 도메인/사실관계 자동 추출
-    """
     analysis_prompt = f"""
 다음은 사건기록 PDF에서 추출한 내용입니다. 
 
@@ -231,7 +213,6 @@ def analyze_case_file(pdf_text: str, model):
         response = model.generate_content(analysis_prompt)
         result_text = response.text.strip()
         
-        # JSON 파싱
         result_text = result_text.replace("```json", "").replace("```", "").strip()
         result = json.loads(result_text)
         return result
@@ -240,24 +221,19 @@ def analyze_case_file(pdf_text: str, model):
         st.error(f"분석 실패: {e}")
         return None
 
-
 # ---------------------------------------
 # 4. 각종 유틸 함수
 # ---------------------------------------
 def _is_menu_input(s: str) -> bool:
     return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
 
-
 def _is_final_report(txt: str) -> bool:
     return "전략 브리핑 보고서" in txt
-
 
 def _query_title(prompt_text: str) -> str:
     return prompt_text[:67] + "..." if len(prompt_text) > 70 else prompt_text
 
-
 def update_active_module(response_text: str):
-    # '9' 입력 감지
     if "'9. 사건기록 자동 분석 모드'" in response_text or "Auto-Analysis Mode" in response_text:
         st.session_state.active_module = "Auto-Analysis Mode"
         return
@@ -267,7 +243,6 @@ def update_active_module(response_text: str):
         st.session_state.active_module = m.group(1).strip()
     elif "Phase 0" in response_text and not st.session_state.get("active_module"):
         st.session_state.active_module = "Phase 0"
-
 
 # ---------------------------------------
 # 5. 시스템 프라임 프롬프트 로드
@@ -298,13 +273,11 @@ if "model" not in st.session_state:
     st.session_state.messages = []
     st.session_state.active_module = "Phase 0"
 
-    # RAG 코퍼스는 '지연 로딩'
     st.session_state.precedents = []
     st.session_state.p_embeddings = []
     st.session_state.statutes = []
     st.session_state.s_embeddings = []
 
-    # 초기 인사
     try:
         init_prompt = "시스템 가동. Phase 0를 시작하라."
         resp = st.session_state.chat.send_message(init_prompt)
@@ -324,7 +297,6 @@ for m in st.session_state.messages:
     with st.chat_message(role_name, avatar=avatar):
         st.markdown(m["content"], unsafe_allow_html=True)
 
-# 자동 스크롤
 if st.session_state.messages:
     st.markdown(
         '<script>setTimeout(()=>{const el=window.parent.document.querySelector("section.main");if(el)el.scrollTop=el.scrollHeight},100)</script>',
@@ -332,7 +304,7 @@ if st.session_state.messages:
     )
 
 # ---------------------------------------
-# 8. PDF 업로드 UI (Auto-Analysis Mode 전용)
+# 8. PDF 업로드 UI
 # ---------------------------------------
 if st.session_state.get("active_module") == "Auto-Analysis Mode":
     st.markdown("---")
@@ -355,17 +327,15 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
         st.success(f"✓ 파일 업로드 완료: **{uploaded_file.name}** ({file_size:.1f}MB)")
         
         if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
-            # 1. 텍스트 추출
             with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
                 pdf_text = extract_text_from_pdf(uploaded_file)
                 
                 if not pdf_text:
-                    st.error("❌ PDF에서 텍스트를 추출할 수 없습니다. 스캔 PDF는 현재 지원하지 않습니다.")
+                    st.error("❌ PDF에서 텍스트를 추출할 수 없습니다.")
                     st.stop()
                 
                 st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
             
-            # 2. AI 분석
             with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
                 analysis = analyze_case_file(pdf_text, st.session_state.model)
                 
@@ -373,7 +343,6 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                     st.error("❌ 분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
                     st.stop()
             
-            # 3. 결과 표시
             st.success("✅ 분석 완료!")
             
             with st.expander("📊 분석 결과 상세 보기", expanded=True):
@@ -399,7 +368,6 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                 st.info(f"**우리 측:** {analysis.get('our_claim', '-')}")
                 st.warning(f"**상대 측:** {analysis.get('their_claim', '-')}")
             
-            # 4. 도메인 매핑
             domain_map = {
                 "형사": "2",
                 "민사": "8",
@@ -419,9 +387,8 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                 f"계속 진행하려면 아래 채팅창에 **{domain_num}**을 입력하세요."
             )
             
-            # 5. 분석 결과 저장
             st.session_state["auto_analysis"] = analysis
-            st.session_state["pdf_text"] = pdf_text  # 원문 저장
+            st.session_state["pdf_text"] = pdf_text
     
     st.markdown("---")
 
@@ -436,8 +403,7 @@ if "auto_analysis" in st.session_state and st.session_state.get("active_module")
         "시스템이 변수 질문을 시작하면, 아래 버튼을 눌러 자동으로 답변할 수 있습니다."
     )
     
-    if st.button("⚡ 자동 입력 활성화 (분석 결과 주입)", type="secondary"):
-        # 분석 결과를 텍스트로 변환
+    if st.button("⚡ 자동 입력 활성화", type="secondary"):
         auto_input = f"""
 [자동 추출된 사건 정보]
 
@@ -458,12 +424,8 @@ if "auto_analysis" in st.session_state and st.session_state.get("active_module")
 위 정보를 바탕으로 시뮬레이션을 진행해주세요.
 """
         
-        # 메시지 추가
         st.session_state.messages.append({"role": "user", "content": auto_input})
-        
-        # 자동 분석 데이터 삭제 (1회용)
         del st.session_state["auto_analysis"]
-        
         st.rerun()
     
     st.markdown("---")
@@ -471,8 +433,7 @@ if "auto_analysis" in st.session_state and st.session_state.get("active_module")
 # ---------------------------------------
 # 10. 스트리밍 응답 함수
 # ---------------------------------------
-def stream_and_store_response(chat_session, prompt_to_send: str,
-                              spinner_text: str = "Architect 시스템 연산 중..."):
+def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: str = "Architect 시스템 연산 중..."):
     full_response = ""
     start_time = time.time()
 
@@ -500,49 +461,34 @@ def stream_and_store_response(chat_session, prompt_to_send: str,
     print(f"[LLM] 응답 시간: {end_time - start_time:.2f}s")
     return full_response
 
-
 # ---------------------------------------
-# 11. 메인 입력 루프 + Dual RAG
+# 11. 메인 입력 루프
 # ---------------------------------------
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오. (사실관계/증거/질문 등)"):
-    # 사용자 메시지 기록/표시
+if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(prompt, unsafe_allow_html=True)
 
-    # Phase 상태
     is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
 
-    # RAG 코퍼스 없으면 최초 1회 로딩
     if (not st.session_state.statutes) and (not st.session_state.precedents):
-        with st.spinner("분석 엔진(Dual RAG) 초기화 중... (최초 1회)"):
-            # 법령 TXT
-            s_data, s_emb = load_and_embed_data(
-                "statutes_data.txt",
-                r"\s*---END OF STATUTE---\s*",
-            )
+        with st.spinner("분석 엔진(Dual RAG) 초기화 중..."):
+            s_data, s_emb = load_and_embed_data("statutes_data.txt", r"\s*---END OF STATUTE---\s*")
             st.session_state.statutes = s_data
             st.session_state.s_embeddings = s_emb
 
-            # 판례 JSONL → 없으면 TXT 폴백
             p_data, p_emb = load_and_embed_data("precedents_data.jsonl")
             if not p_data:
-                p_data, p_emb = load_and_embed_data(
-                    "precedents_data.txt",
-                    r"\s*---END OF PRECEDENT---\s*",
-                )
+                p_data, p_emb = load_and_embed_data("precedents_data.txt", r"\s*---END OF PRECEDENT---\s*")
             st.session_state.precedents = p_data
             st.session_state.p_embeddings = p_emb
 
-    # --- RAG 컨텍스트 조립 ---
     rag_context = ""
     similar_precedents = []
 
     if not _is_menu_input(prompt) and not is_data_ingestion_phase:
-        # 핵심 키워드 추출 (간단 버전)
         keywords = []
         
-        # 도메인별 키워드 매핑
         domain_keywords = {
             "형사": "마약 필로폰 투약 매매 성범죄 강간 추행 음주운전 혈중알코올 도박",
             "민사": "계약 손해배상 채무 이행 해제 위약금",
@@ -551,82 +497,37 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오. (사�
             "행정": "영업정지 과징금 처분 취소",
         }
         
-        # 현재 활성 모듈에서 도메인 키워드 추가
         for domain, kw in domain_keywords.items():
             if domain in (st.session_state.active_module or ""):
                 keywords.append(kw)
         
-        # 사용자 입력 추가
         keywords.append(prompt)
-        
         contextual_query = " ".join(keywords)
-        print(f"[RAG Query] {contextual_query[:100]}")
 
-        with st.spinner("실시간 데이터베이스 분석 중... (Dual RAG)"):
-            # 법령 검색 (Threshold 0.55)
+        with st.spinner("실시간 데이터베이스 분석 중..."):
             if st.session_state.statutes:
-                s_hits = find_similar_items(
-                    contextual_query,
-                    st.session_state.statutes,
-                    st.session_state.s_embeddings,
-                    top_k=3,
-                    threshold=0.55,
-                )
+                s_hits = find_similar_items(contextual_query, st.session_state.statutes, st.session_state.s_embeddings, top_k=3, threshold=0.55)
                 if s_hits:
-                    s_texts = [
-                        f"[유사도: {hit['similarity']:.2f}]\n"
-                        f"{hit.get('rag_index', '내용 없음')}\n---\n"
-                        for hit in s_hits
-                    ]
-                    rag_context += (
-                        "\n\n[시스템 참조: 검색된 관련 법령 데이터]\n" +
-                        "\n".join(s_texts)
-                    )
+                    s_texts = [f"[유사도: {hit['similarity']:.2f}]\n{hit.get('rag_index', '내용 없음')}\n---\n" for hit in s_hits]
+                    rag_context += "\n\n[시스템 참조: 검색된 관련 법령 데이터]\n" + "\n".join(s_texts)
 
-            # 판례 검색 (Threshold 0.55)
             if st.session_state.precedents:
-                similar_precedents = find_similar_items(
-                    contextual_query,
-                    st.session_state.precedents,
-                    st.session_state.p_embeddings,
-                    top_k=5,
-                    threshold=0.55,
-                )
+                similar_precedents = find_similar_items(contextual_query, st.session_state.precedents, st.session_state.p_embeddings, top_k=5, threshold=0.55)
                 if similar_precedents:
-                    p_texts = [
-                        f"[유사도: {hit['similarity']:.2f}]\n"
-                        f"{hit.get('rag_index', '내용 없음')}\n---\n"
-                        for hit in similar_precedents
-                    ]
-                    rag_context += (
-                        "\n\n[시스템 참조: 검색된 유사 판례 데이터]\n" +
-                        "\n".join(p_texts)
-                    )
+                    p_texts = [f"[유사도: {hit['similarity']:.2f}]\n{hit.get('rag_index', '내용 없음')}\n---\n" for hit in similar_precedents]
+                    rag_context += "\n\n[시스템 참조: 검색된 유사 판례 데이터]\n" + "\n".join(p_texts)
 
-    # 최종 프롬프트
-    final_prompt = (
-        f"[사용자 원문 입력]\n{prompt}\n"
-        f"{rag_context}"
-    )
-    
-    current_response = stream_and_store_response(
-        st.session_state.chat,
-        final_prompt,
-    )
+    final_prompt = f"[사용자 원문 입력]\n{prompt}\n{rag_context}"
+    current_response = stream_and_store_response(st.session_state.chat, final_prompt)
 
-    # 판례 카드 시각화
     clean_response = re.sub("<[^<]+?>", "", current_response)
 
     if _is_final_report(clean_response) and similar_precedents:
         q_title = _query_title(prompt)
-        st.markdown(
-            f"**📚 실시간 판례 전문 분석 (P-RAG 결과)**\n\n"
-            f"* 검색 쿼리: `[{q_title}]`\n"
-        )
+        st.markdown(f"**📚 실시간 판례 전문 분석 (P-RAG 결과)**\n\n* 검색 쿼리: `[{q_title}]`\n")
 
         for case_data in similar_precedents[:3]:
             sim_pct = int(round(case_data["similarity"] * 100))
-
             title = case_data.get("title", "제목 없음")
             case_no = case_data.get("case_no", case_data.get("id", ""))
             court = case_data.get("court", "")
@@ -644,11 +545,7 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오. (사�
 
             link_md = f"[🔗 원문 링크 보기]({url})" if url else ""
 
-            md = (
-                f"* **{label}**\n"
-                f"  - 선고: {date} | 유사도: {sim_pct}% | {link_md}\n"
-                f"  - 내용 요약 (RAG Index): {summary}"
-            )
+            md = f"* **{label}**\n  - 선고: {date} | 유사도: {sim_pct}% | {link_md}\n  - 내용 요약: {summary}"
             st.markdown(md)
 
             if full_text:
@@ -656,8 +553,6 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오. (사�
                     st.text(full_text)
 
     elif _is_final_report(clean_response) and not similar_precedents:
-        st.info(
-            "ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. "
-            "(임계값 0.55)"
-        )
+        st.info("ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
+```
 
