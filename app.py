@@ -1,4 +1,3 @@
-```python
 # 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG
 
 import streamlit as st
@@ -554,5 +553,3 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
 
     elif _is_final_report(clean_response) and not similar_precedents:
         st.info("ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
-```
-
