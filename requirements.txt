@@ -2,3 +2,4 @@ streamlit
 google-generativeai>=0.6.0
 setuptools
 numpy
+PyPDF2
