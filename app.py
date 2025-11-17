@@ -137,54 +137,43 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     return results
 
 # ---------------------------------------
-# 3. PDF 처리 함수 (★ 'OCR 엔진' '이식' ★)
+# 3. PDF 처리 함수
 # ---------------------------------------
-import pytesseract
-from pdf2image import convert_from_bytes
-
 def extract_text_from_pdf(uploaded_file):
-    """
-    OCR 엔진 'Tesseract'를 '강제'로 '동원'하여 '스캔'된 '이미지' PDF의 '텍스트'를 '추출'한다.
-    이 '작업'은 '매우' '느리다'.
-    """
-    text = ""
+    """PDF 텍스트를 추출하고, 실패 시 원인 코드를 반환한다. (v8.1.1 수정)"""
     try:
-        # 1. 'Poppler'를 '이용'하여 PDF '바이트'를 '이미지' '리스트'로 '변환'
-        # 'uploaded_file'의 '바이트'를 '직접' '읽는다'.
-        file_bytes = uploaded_file.getvalue()
+        # ★★★ [개선 1] 안정성 확보: 스트림 위치를 처음으로 되돌림 (Streamlit 특성 고려) ★★★
+        uploaded_file.seek(0) 
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
         
-        # 'Poppler'가 '설치'되지 '않았다면' '여기서' '실패'할 '것'이다.
-        images = convert_from_bytes(file_bytes)
+        # ★★★ [개선 2] 암호화 확인 ★★★
+        if pdf_reader.is_encrypted:
+             return "[ERROR:ENCRYPTED]"
+
+        text = ""
         
-        if not images:
-            st.error("PDF를 이미지로 변환할 수 없습니다. 파일이 손상되었거나 암호화되었을 수 있습니다.")
-            return None
-
-        # 2. 'Tesseract'를 '이용'하여 '각' '이미지' '페이지'를 'OCR' '처리'
-        total_pages = len(images)
-        st.info(f"PDF에서 {total_pages}개의 페이지를 감지했습니다. OCR 처리를 시작합니다...")
-
-        for i, img in enumerate(images):
-            # '한글'('kor')과 '영어'('eng')를 '동시'에 '감지'
-            page_text = pytesseract.image_to_string(img, lang='kor+eng')
-            
-            text += f"\n--- 페이지 {i + 1} / {total_pages} ---\n"
-            text += page_text
-            
-            # (선택적) 사용자에게 '진행' '상황'을 '표시'할 수 있으나, 
-            # 'stream_and_store_response' '외부'에서는 '복잡'함.
-
+        for page_num, page in enumerate(pdf_reader.pages):
+            page_text = page.extract_text()
+            if page_text:
+                # 추출된 텍스트가 의미 있는지 확인 (공백 제거)
+                cleaned_text = page_text.strip()
+                if cleaned_text:
+                    text += f"\n--- 페이지 {page_num + 1} ---\n"
+                    text += cleaned_text
+        
+        # ★★★ [개선 3] 내용물 없음 감지 (스캔 PDF 진단) ★★★
         if not text.strip():
-            st.warning("⚠️ OCR 처리 결과 텍스트가 비어있습니다. '백지' 파일일 수 있습니다.")
-            return None
-            
-        return text
+            # 모든 페이지 처리 후 텍스트가 없으면 스캔된 PDF 또는 빈 파일로 간주
+            return "[ERROR:NO_TEXT]"
+
+        return text.strip()
     
     except Exception as e:
-        # 'Tesseract'나 'Poppler'가 '설치'되지 '않았다면' '여기서' '오류'가 '발생'한다.
-        st.error(f"OCR 처리 실패: {e}")
-        st.error("Streamlit Cloud 환경에 'packages.txt' 파일이 '정확히' '설정'되었는지 '확인'하십시오.")
-        return None
+        # 처리 실패 감지 (손상 등)
+        print(f"[PDF Extraction Error] {e}") # 디버깅용 서버 로그
+        return f"[ERROR:PROCESSING_FAILED]"
+
+# (analyze_case_file 함수는 그대로 유지)
 
 # ---------------------------------------
 # 4. 각종 유틸 함수
@@ -325,20 +314,39 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
         if uploaded_file is not None:
             file_size = uploaded_file.size / (1024 * 1024)
             
-            with st.container():
-                st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
-            
-            if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
-                with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
-                    pdf_text = extract_text_from_pdf(uploaded_file)
-                    
-                    if not pdf_text:
-                        st.error("❌ PDF에서 텍스트를 추출할 수 없습니다.")
-                        st.stop()
-                    
-                    st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
-                
-                with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
+            # ... (Lines 330-331 근처) ...
+            with st.container():
+                st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
+            
+            if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
+                with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
+                    # ★★★ [수정] 함수 호출 및 결과 받기 ★★★
+                    pdf_text = extract_text_from_pdf(uploaded_file)
+                    
+                    # ★★★ [수정] 상세 오류 처리 로직 (v8.1.1) ★★★
+                    # 결과가 없거나(None), 문자열이면서 에러 코드로 시작하는 경우 처리
+                    if not pdf_text or (isinstance(pdf_text, str) and pdf_text.startswith("[ERROR:")):
+                        
+                        if pdf_text == "[ERROR:NO_TEXT]":
+                            st.error("❌ 텍스트 추출 실패: PDF에 텍스트가 없습니다. 스캔된 이미지 파일일 수 있습니다. (텍스트 기반 PDF만 지원됩니다.)")
+                        
+                        elif pdf_text == "[ERROR:ENCRYPTED]":
+                            st.error("❌ PDF 처리 실패: 파일이 암호화되어 있습니다. 암호를 해제하고 다시 시도하세요.")
+
+                        elif pdf_text == "[ERROR:PROCESSING_FAILED]":
+                             st.error(f"❌ PDF 처리 실패: 파일이 손상되었거나 처리 중 오류가 발생했습니다. (상세 오류는 서버 로그 확인)")
+                        
+                        else:
+                            # 예상치 못한 오류 또는 None 반환 시
+                            st.error("❌ PDF에서 텍스트를 추출할 수 없습니다. (알 수 없는 오류)")
+                        
+                        st.stop()
+                    
+                    # 성공 시 (pdf_text에 내용이 있음)
+                    st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
+                
+                with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
+# ... (이후 analyze_case_file 호출 로직은 그대로 유지) ...
                     analysis = analyze_case_file(pdf_text, st.session_state.model)
                     
                     if not analysis:
