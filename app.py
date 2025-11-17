@@ -199,8 +199,9 @@ st.info(f"현재 도메인 설정: **{selected_domain}**")
 # ---------------------------------------
 if "model" not in st.session_state:
     try:
+        # [★수정됨★] 모델명 오류 수정: 'gemini-2.5-flash' -> 'gemini-1.5-flash-latest'
         st.session_state.model = genai.GenerativeModel(
-            "models/gemini-2.5",
+            "models/gemini-2.5-pro",
             system_instruction=SYSTEM_INSTRUCTION,
         )
         st.session_state.chat = st.session_state.model.start_chat(history=[])
