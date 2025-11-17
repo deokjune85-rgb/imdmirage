@@ -1,4 +1,4 @@
-# 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG
+# 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG (사전 임베딩)
 
 import streamlit as st
 import google.generativeai as genai
@@ -87,57 +87,36 @@ def embed_text(text: str, task_type: str = "retrieval_document"):
         print(f"[Embedding error] {e}")
         return None
 
-@st.cache_data(show_spinner=True)
-def load_and_embed_data(file_path: str, separator_regex: str = None):
-    if not os.path.exists(file_path):
-        print(f"[RAG] File not found: {file_path}")
-        return [], []
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except Exception as e:
-        print(f"[RAG] Error reading file: {e}")
-        return [], []
-
-    if not content.strip():
-        return [], []
-
-    data_items = []
-    embeddings = []
-
-    if file_path.endswith(".jsonl"):
-        for line in content.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            txt = obj.get("rag_index") or obj.get("summary") or ""
-            if not txt:
-                continue
-
-            emb = embed_text(txt, task_type="retrieval_document")
-            if emb:
-                data_items.append(obj)
-                embeddings.append(emb)
-
-    elif separator_regex:
-        parts = re.split(separator_regex, content)
-        for p in parts:
-            p = p.strip()
-            if not p:
-                continue
-            emb = embed_text(p, task_type="retrieval_document")
-            if emb:
-                data_items.append({"rag_index": p, "raw_text": p})
-                embeddings.append(emb)
-
-    print(f"[RAG] Loaded {len(data_items)} items from {file_path}")
-    return data_items, embeddings
+# ---------------------------------------
+# 2-1. 사전 계산된 임베딩 로드 (★ 핵심 수정 ★)
+# ---------------------------------------
+@st.cache_data(show_spinner=False)
+def load_precomputed_embeddings():
+    """사전 계산된 임베딩 로드 (0.5초 완료)"""
+    statute_items = []
+    statute_embeddings = []
+    precedent_items = []
+    precedent_embeddings = []
+    
+    # 법령 로드
+    if os.path.exists("statutes_embeddings.npy") and os.path.exists("statutes_items.json"):
+        statute_embeddings = np.load("statutes_embeddings.npy").tolist()
+        with open("statutes_items.json", "r", encoding="utf-8") as f:
+            statute_items = json.load(f)
+        print(f"[RAG] ✅ 법령 로드: {len(statute_items)}개")
+    else:
+        print("[RAG] ⚠️ 법령 임베딩 파일 없음! generate_embeddings.py 실행 필요")
+    
+    # 판례 로드
+    if os.path.exists("precedents_embeddings.npy") and os.path.exists("precedents_items.json"):
+        precedent_embeddings = np.load("precedents_embeddings.npy").tolist()
+        with open("precedents_items.json", "r", encoding="utf-8") as f:
+            precedent_items = json.load(f)
+        print(f"[RAG] ✅ 판례 로드: {len(precedent_items)}개")
+    else:
+        print("[RAG] ⚠️ 판례 임베딩 파일 없음")
+    
+    return statute_items, statute_embeddings, precedent_items, precedent_embeddings
 
 def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     if not items or not embeddings:
@@ -305,7 +284,6 @@ if st.session_state.messages:
 # ---------------------------------------
 # 8. PDF 업로드 UI (Auto-Analysis Mode 전용)
 # ---------------------------------------
-# ★★★ 조건: active_module이 "Auto-Analysis Mode"이고, 메시지가 2개 이상일 때만 표시 ★★★
 if st.session_state.get("active_module") == "Auto-Analysis Mode" and len(st.session_state.messages) > 1:
     st.markdown("---")
     
@@ -506,15 +484,17 @@ if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
 
     is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
 
+    # ★★★ RAG 초기화 (사전 임베딩 사용) ★★★
     if (not st.session_state.statutes) and (not st.session_state.precedents):
-        with st.spinner("분석 엔진(Dual RAG) 초기화 중..."):
-            s_data, s_emb = load_and_embed_data("statutes_data.txt", r"\s*---END OF STATUTE---\s*")
+        with st.spinner("분석 엔진 로딩 중..."):
+            s_data, s_emb, p_data, p_emb = load_precomputed_embeddings()
+            
+            if not s_data and not p_data:
+                st.warning("⚠️ 임베딩 파일이 없습니다. generate_embeddings.py를 먼저 실행하세요.")
+                # 임베딩 없이도 계속 진행 (RAG 없이)
+            
             st.session_state.statutes = s_data
             st.session_state.s_embeddings = s_emb
-
-            p_data, p_emb = load_and_embed_data("precedents_data.jsonl")
-            if not p_data:
-                p_data, p_emb = load_and_embed_data("precedents_data.txt", r"\s*---END OF PRECEDENT---\s*")
             st.session_state.precedents = p_data
             st.session_state.p_embeddings = p_emb
 
