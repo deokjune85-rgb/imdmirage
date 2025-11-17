@@ -344,7 +344,6 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                     st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
                 
                 with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
-# ... (이후 analyze_case_file 호출 로직은 그대로 유지) ...
                     analysis = analyze_case_file(pdf_text, st.session_state.model)
                     
                     if not analysis:
