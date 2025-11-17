@@ -303,27 +303,46 @@ if st.session_state.messages:
     )
 
 # ---------------------------------------
-# 8. PDF 업로드 UI
+# 8. PDF 업로드 UI (Auto-Analysis Mode 전용)
 # ---------------------------------------
 if st.session_state.get("active_module") == "Auto-Analysis Mode":
     st.markdown("---")
-    st.subheader("📎 사건기록 자동 분석")
+    
+    st.info("""
+    **📄 사건기록 자동 분석 모드란?**
+    
+    PDF 파일(판결문, 고소장, 답변서 등)을 업로드하면 AI가 자동으로:
+    - ✅ 사건 도메인 분류 (형사/민사/가사 등)
+    - ✅ 핵심 사실관계 5가지 추출
+    - ✅ 확보된 증거 목록 정리
+    - ✅ 양측 주장 요약
+    
+    **처리 시간:** 약 1-3분 | **최대 크기:** 50MB | **형식:** 텍스트 기반 PDF만 가능
+    """)
+    
+    st.subheader("📎 파일 업로드")
     
     col1, col2 = st.columns([3, 1])
     
     with col1:
         uploaded_file = st.file_uploader(
-            "PDF 파일을 선택하세요 (최대 50MB)",
+            "사건기록 PDF를 선택하세요",
             type=["pdf"],
-            help="판결문, 고소장, 답변서, 사건기록 등"
+            help="판결문, 고소장, 답변서, 사건기록 등",
+            label_visibility="collapsed"
         )
     
     with col2:
-        st.metric("처리 상태", "대기 중" if uploaded_file is None else "준비 완료")
+        if uploaded_file:
+            st.metric("상태", "✅ 준비 완료", delta="업로드 완료")
+        else:
+            st.metric("상태", "⏳ 대기 중", delta="파일 선택")
     
     if uploaded_file is not None:
         file_size = uploaded_file.size / (1024 * 1024)
-        st.success(f"✓ 파일 업로드 완료: **{uploaded_file.name}** ({file_size:.1f}MB)")
+        
+        with st.container():
+            st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
         
         if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
             with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
@@ -348,13 +367,14 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                 col_a, col_b = st.columns(2)
                 
                 with col_a:
-                    st.metric("도메인", analysis["domain"])
-                    st.metric("세부 분야", analysis.get("subdomain", "미분류"))
+                    st.metric("🏛️ 도메인", analysis["domain"])
+                    st.metric("📌 세부 분야", analysis.get("subdomain", "미분류"))
                 
                 with col_b:
-                    st.metric("핵심 사실", f"{len(analysis.get('key_facts', []))}개")
-                    st.metric("증거 항목", f"{len(analysis.get('evidence', []))}개")
+                    st.metric("📋 핵심 사실", f"{len(analysis.get('key_facts', []))}개")
+                    st.metric("📂 증거 항목", f"{len(analysis.get('evidence', []))}개")
                 
+                st.markdown("---")
                 st.markdown("**📌 핵심 사실관계**")
                 for i, fact in enumerate(analysis.get("key_facts", []), 1):
                     st.markdown(f"{i}. {fact}")
@@ -364,8 +384,8 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
                     st.markdown(f"{i}. {ev}")
                 
                 st.markdown("**⚖️ 양측 주장**")
-                st.info(f"**우리 측:** {analysis.get('our_claim', '-')}")
-                st.warning(f"**상대 측:** {analysis.get('their_claim', '-')}")
+                st.info(f"**우리 측:** {analysis.get('our_claim', '(정보 없음)')}")
+                st.warning(f"**상대 측:** {analysis.get('their_claim', '(정보 없음)')}")
             
             domain_map = {
                 "형사": "2",
@@ -382,7 +402,8 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
             domain_num = domain_map.get(analysis["domain"], "8")
             
             st.info(
-                f"💡 **분석 결과:** 이 사건은 **{analysis['domain']}** 사건으로 분류되었습니다.\n\n"
+                f"💡 **다음 단계**\n\n"
+                f"이 사건은 **{analysis['domain']}** 사건으로 분류되었습니다.\n\n"
                 f"계속 진행하려면 아래 채팅창에 **{domain_num}**을 입력하세요."
             )
             
@@ -397,12 +418,12 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
 if "auto_analysis" in st.session_state and st.session_state.get("active_module") != "Auto-Analysis Mode":
     auto_data = st.session_state["auto_analysis"]
     
-    st.info(
-        "💡 **자동 분석 결과가 감지되었습니다.**\n\n"
+    st.success(
+        "💡 **자동 분석 결과가 감지되었습니다!**\n\n"
         "시스템이 변수 질문을 시작하면, 아래 버튼을 눌러 자동으로 답변할 수 있습니다."
     )
     
-    if st.button("⚡ 자동 입력 활성화", type="secondary"):
+    if st.button("⚡ 자동 입력 활성화", type="secondary", use_container_width=True):
         auto_input = f"""
 [자동 추출된 사건 정보]
 
