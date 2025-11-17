@@ -7,8 +7,8 @@ import numpy as np
 import re
 import time
 import json
-import PyPDF2
-from io import BytesIO
+import pytesseract
+from pdf2image import convert_from_bytes
 
 # ---------------------------------------
 # 0. 기본 세팅
@@ -137,62 +137,53 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     return results
 
 # ---------------------------------------
-# 3. PDF 처리 함수
+# 3. PDF 처리 함수 (★ 'OCR 엔진' '이식' ★)
 # ---------------------------------------
+import pytesseract
+from pdf2image import convert_from_bytes
+
 def extract_text_from_pdf(uploaded_file):
+    """
+    OCR 엔진 'Tesseract'를 '강제'로 '동원'하여 '스캔'된 '이미지' PDF의 '텍스트'를 '추출'한다.
+    이 '작업'은 '매우' '느리다'.
+    """
+    text = ""
     try:
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        text = ""
+        # 1. 'Poppler'를 '이용'하여 PDF '바이트'를 '이미지' '리스트'로 '변환'
+        # 'uploaded_file'의 '바이트'를 '직접' '읽는다'.
+        file_bytes = uploaded_file.getvalue()
         
-        for page_num, page in enumerate(pdf_reader.pages):
-            page_text = page.extract_text()
-            if page_text:
-                text += f"\n--- 페이지 {page_num + 1} ---\n"
-                text += page_text
+        # 'Poppler'가 '설치'되지 '않았다면' '여기서' '실패'할 '것'이다.
+        images = convert_from_bytes(file_bytes)
         
+        if not images:
+            st.error("PDF를 이미지로 변환할 수 없습니다. 파일이 손상되었거나 암호화되었을 수 있습니다.")
+            return None
+
+        # 2. 'Tesseract'를 '이용'하여 '각' '이미지' '페이지'를 'OCR' '처리'
+        total_pages = len(images)
+        st.info(f"PDF에서 {total_pages}개의 페이지를 감지했습니다. OCR 처리를 시작합니다...")
+
+        for i, img in enumerate(images):
+            # '한글'('kor')과 '영어'('eng')를 '동시'에 '감지'
+            page_text = pytesseract.image_to_string(img, lang='kor+eng')
+            
+            text += f"\n--- 페이지 {i + 1} / {total_pages} ---\n"
+            text += page_text
+            
+            # (선택적) 사용자에게 '진행' '상황'을 '표시'할 수 있으나, 
+            # 'stream_and_store_response' '외부'에서는 '복잡'함.
+
+        if not text.strip():
+            st.warning("⚠️ OCR 처리 결과 텍스트가 비어있습니다. '백지' 파일일 수 있습니다.")
+            return None
+            
         return text
     
     except Exception as e:
-        st.error(f"PDF 처리 실패: {e}")
-        return None
-
-def analyze_case_file(pdf_text: str, model):
-    analysis_prompt = f"""
-다음은 사건기록 PDF에서 추출한 내용입니다. 
-
-[PDF 내용]
-{pdf_text[:15000]}
-
-[분석 지침]
-1. 이 사건의 도메인 분류 (형사/민사/가사/행정/파산/IP/의료/세무 중 1개)
-2. 세부 분야 (예: 형사-마약, 민사-계약분쟁 등)
-3. 핵심 사실관계 5가지 (시간순 또는 중요도순)
-4. 확보된 증거 목록 (문서명, 종류)
-5. 피고인/원고 측 주장 요약
-6. 상대방 측 주장 요약
-
-반드시 아래 JSON 형식으로만 출력하세요. 다른 설명은 하지 마세요.
-
-{{
-  "domain": "형사",
-  "subdomain": "마약",
-  "key_facts": ["2023-05-01 필로폰 5g 소지로 체포", "경찰 조사 중 투약 인정", "초범", "생활비 목적 주장", "3개월간 10회 판매 정황"],
-  "evidence": ["압수조서", "감정서(양성)", "카카오톡 대화 내역", "계좌이체 내역"],
-  "our_claim": "단순 투약 목적이며 초범으로 선처 필요",
-  "their_claim": "반복 판매로 영리 목적 인정"
-}}
-"""
-    
-    try:
-        response = model.generate_content(analysis_prompt)
-        result_text = response.text.strip()
-        
-        result_text = result_text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(result_text)
-        return result
-    
-    except Exception as e:
-        st.error(f"분석 실패: {e}")
+        # 'Tesseract'나 'Poppler'가 '설치'되지 '않았다면' '여기서' '오류'가 '발생'한다.
+        st.error(f"OCR 처리 실패: {e}")
+        st.error("Streamlit Cloud 환경에 'packages.txt' 파일이 '정확히' '설정'되었는지 '확인'하십시오.")
         return None
 
 # ---------------------------------------
