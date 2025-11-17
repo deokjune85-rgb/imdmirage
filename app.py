@@ -305,7 +305,8 @@ if st.session_state.messages:
 # ---------------------------------------
 # 8. PDF 업로드 UI (Auto-Analysis Mode 전용)
 # ---------------------------------------
-if st.session_state.get("active_module") == "Auto-Analysis Mode":
+# ★★★ 조건: active_module이 "Auto-Analysis Mode"이고, 메시지가 2개 이상일 때만 표시 ★★★
+if st.session_state.get("active_module") == "Auto-Analysis Mode" and len(st.session_state.messages) > 1:
     st.markdown("---")
     
     st.info("""
@@ -485,9 +486,19 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
 # 11. 메인 입력 루프
 # ---------------------------------------
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
-    # ★★★ 9번 입력 시 즉시 Auto-Analysis Mode 활성화 ★★★
+    # ★★★ 9번 입력 감지 및 처리 ★★★
     if prompt.strip() == "9":
         st.session_state.active_module = "Auto-Analysis Mode"
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("Client", avatar="👤"):
+            st.markdown(prompt, unsafe_allow_html=True)
+        
+        # AI 응답 받기
+        response_text = stream_and_store_response(st.session_state.chat, prompt)
+        
+        # 화면 새로고침으로 PDF UI 표시
+        st.rerun()
     
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
