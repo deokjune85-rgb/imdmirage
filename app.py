@@ -233,7 +233,7 @@ def _query_title(prompt_text: str) -> str:
     return prompt_text[:67] + "..." if len(prompt_text) > 70 else prompt_text
 
 def update_active_module(response_text: str):
-    if "'9. 사건기록 자동 분석 모드'" in response_text or "Auto-Analysis Mode" in response_text:
+    if "9." in response_text and "사건기록" in response_text and "Auto-Analysis" in response_text:
         st.session_state.active_module = "Auto-Analysis Mode"
         return
     
@@ -485,6 +485,10 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
 # 11. 메인 입력 루프
 # ---------------------------------------
 if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
+    # ★★★ 9번 입력 시 즉시 Auto-Analysis Mode 활성화 ★★★
+    if prompt.strip() == "9":
+        st.session_state.active_module = "Auto-Analysis Mode"
+    
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(prompt, unsafe_allow_html=True)
