@@ -313,7 +313,7 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
         
         if uploaded_file is not None:
             file_size = uploaded_file.size / (1024 * 1024)
-            with st.container():
+                with st.container():
                 st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
             
             if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
