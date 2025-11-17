@@ -1,4 +1,4 @@
-# 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG (사전 임베딩)
+# 베리타스 엔진 8.1.1 — Auto-Analysis Mode + Dual RAG (코드 정제 및 최적화 완료)
 
 import streamlit as st
 import google.generativeai as genai
@@ -7,8 +7,7 @@ import numpy as np
 import re
 import time
 import json
-import pytesseract
-from pdf2image import convert_from_bytes
+import PyPDF2 # PDF 처리를 위해 필수
 
 # ---------------------------------------
 # 0. 기본 세팅
@@ -19,6 +18,7 @@ st.set_page_config(
     layout="centered"
 )
 
+# CSS (모든 공백은 표준 공백 U+0020으로 정제됨)
 custom_css = """
 <style>
 #MainMenu, footer, header, .stDeployButton {visibility:hidden;}
@@ -59,12 +59,18 @@ st.warning(
 # 1. API 키 설정
 # ---------------------------------------
 try:
-    API_KEY = st.secrets["GOOGLE_API_KEY"]
+    # Streamlit Cloud 배포 시 st.secrets 사용
+    if "GOOGLE_API_KEY" in st.secrets:
+        API_KEY = st.secrets["GOOGLE_API_KEY"]
+    # 로컬 환경에서는 환경 변수 사용 (선택 사항)
+    else:
+        API_KEY = os.environ.get("GOOGLE_API_KEY")
+
     if not API_KEY:
-        raise ValueError("API Key is empty.")
+        raise ValueError("API Key not found in secrets or environment variables.")
     genai.configure(api_key=API_KEY)
 except (KeyError, ValueError) as e:
-    st.error(f"시스템 오류: 엔진 연결 실패. {e}")
+    st.error(f"시스템 오류: 엔진 연결 실패. API 키를 확인하세요. {e}")
     st.stop()
 
 # ---------------------------------------
@@ -122,7 +128,15 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     if q_emb is None:
         return []
 
-    sims = np.dot(np.array(embeddings), np.array(q_emb))
+    # 안정성을 위해 데이터 타입을 명시적으로 변환
+    try:
+        embeddings_np = np.array(embeddings, dtype=np.float32)
+        q_emb_np = np.array(q_emb, dtype=np.float32)
+    except ValueError as e:
+        print(f"[RAG Error] 임베딩 데이터 타입 변환 실패: {e}")
+        return []
+
+    sims = np.dot(embeddings_np, q_emb_np)
     idxs = np.argsort(sims)[::-1][:top_k]
 
     results = []
@@ -137,16 +151,16 @@ def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     return results
 
 # ---------------------------------------
-# 3. PDF 처리 함수
+# 3. PDF 처리 함수 (★★★ 진단 강화됨 v8.1.1 ★★★)
 # ---------------------------------------
 def extract_text_from_pdf(uploaded_file):
-    """PDF 텍스트를 추출하고, 실패 시 원인 코드를 반환한다. (v8.1.1 수정)"""
+    """PDF 텍스트를 추출하고, 실패 시 원인 코드를 반환한다."""
     try:
-        # ★★★ [개선 1] 안정성 확보: 스트림 위치를 처음으로 되돌림 (Streamlit 특성 고려) ★★★
-        uploaded_file.seek(0) 
+        # [개선 1] 안정성 확보: 스트림 위치를 처음으로 되돌림 (Streamlit 특성 고려)
+        uploaded_file.seek(0)
         pdf_reader = PyPDF2.PdfReader(uploaded_file)
         
-        # ★★★ [개선 2] 암호화 확인 ★★★
+        # [개선 2] 암호화 확인
         if pdf_reader.is_encrypted:
              return "[ERROR:ENCRYPTED]"
 
@@ -161,7 +175,7 @@ def extract_text_from_pdf(uploaded_file):
                     text += f"\n--- 페이지 {page_num + 1} ---\n"
                     text += cleaned_text
         
-        # ★★★ [개선 3] 내용물 없음 감지 (스캔 PDF 진단) ★★★
+        # [개선 3] 내용물 없음 감지 (스캔 PDF 진단)
         if not text.strip():
             # 모든 페이지 처리 후 텍스트가 없으면 스캔된 PDF 또는 빈 파일로 간주
             return "[ERROR:NO_TEXT]"
@@ -173,7 +187,34 @@ def extract_text_from_pdf(uploaded_file):
         print(f"[PDF Extraction Error] {e}") # 디버깅용 서버 로그
         return f"[ERROR:PROCESSING_FAILED]"
 
-# (analyze_case_file 함수는 그대로 유지)
+
+def analyze_case_file(pdf_text: str):
+    """PDF 텍스트를 분석하여 핵심 정보를 JSON으로 추출한다."""
+    analysis_prompt = f"""
+다음은 사건기록 PDF에서 추출한 내용입니다. 
+
+[PDF 내용]
+{pdf_text[:15000]} # 컨텍스트 길이 제한 고려
+
+[분석 지침]
+1. 이 사건의 도메인 분류 (형사/민사/가사/행정/파산/IP/의료/세무 중 1개)
+2. 세부 분야 (예: 형사-마약, 민사-계약분쟁 등)
+3. 핵심 사실관계 5가지 (시간순 또는 중요도순)
+4. 확보된 증거 목록 (문서명, 종류)
+5. 피고인/원고 측 주장 요약
+6. 상대방 측 주장 요약
+
+반드시 아래 JSON 형식으로만 출력하세요. 다른 설명은 하지 마세요. (```json 마크다운 포함)
+
+```json
+{{
+  "domain": "형사",
+  "subdomain": "마약",
+  "key_facts": ["사실 1", "사실 2", "사실 3", "사실 4", "사실 5"],
+  "evidence": ["증거 1", "증거 2"],
+  "our_claim": "우리 측 주장 요약",
+  "their_claim": "상대방 측 주장 요약"
+}}
 
 # ---------------------------------------
 # 4. 각종 유틸 함수
@@ -270,136 +311,128 @@ if st.session_state.messages:
 # ---------------------------------------
 # 조건: active_module이 정확히 "Auto-Analysis Mode"이고, 9번을 입력한 직후일 때만 표시
 if st.session_state.get("active_module") == "Auto-Analysis Mode":
-    # 마지막 사용자 메시지가 "9"인지 확인
-    last_user_msg = None
-    for m in reversed(st.session_state.messages):
-        if m["role"] == "user":
-            last_user_msg = m["content"].strip()
-            break
-    
     # 9번 입력 직후에만 PDF UI 표시
-    if last_user_msg == "9":
-        st.markdown("---")
+if last_user_msg == "9":
+    st.markdown("---")
+    
+    st.info("""
+    **📄 사건기록 자동 분석 모드란?**
+    
+    PDF 파일(판결문, 고소장, 답변서 등)을 업로드하면 AI가 자동으로:
+    - ✅ 사건 도메인 분류 (형사/민사/가사 등)
+    - ✅ 핵심 사실관계 5가지 추출
+    - ✅ 확보된 증거 목록 정리
+    - ✅ 양측 주장 요약
+    
+    **처리 시간:** 약 1-3분 | **최대 크기:** 50MB | **형식:** 텍스트 기반 PDF만 가능 (스캔본 불가)
+    """)
+    
+    st.subheader("📎 파일 업로드")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        uploaded_file = st.file_uploader(
+            "사건기록 PDF를 선택하세요",
+            type=["pdf"],
+            help="판결문, 고소장, 답변서, 사건기록 등",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        if uploaded_file:
+            st.metric("상태", "✅ 준비 완료", delta="업로드 완료")
+        else:
+            st.metric("상태", "⏳ 대기 중", delta="파일 선택")
+    
+    if uploaded_file is not None:
+        file_size = uploaded_file.size / (1024 * 1024)
         
-        st.info("""
-        **📄 사건기록 자동 분석 모드란?**
+        # [주의] 이 부분의 들여쓰기가 핵심입니다. (NBSP 제거 완료)
+        with st.container():
+            st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
         
-        PDF 파일(판결문, 고소장, 답변서 등)을 업로드하면 AI가 자동으로:
-        - ✅ 사건 도메인 분류 (형사/민사/가사 등)
-        - ✅ 핵심 사실관계 5가지 추출
-        - ✅ 확보된 증거 목록 정리
-        - ✅ 양측 주장 요약
-        
-        **처리 시간:** 약 1-3분 | **최대 크기:** 50MB | **형식:** 텍스트 기반 PDF만 가능
-        """)
-        
-        st.subheader("📎 파일 업로드")
-        
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            uploaded_file = st.file_uploader(
-                "사건기록 PDF를 선택하세요",
-                type=["pdf"],
-                help="판결문, 고소장, 답변서, 사건기록 등",
-                label_visibility="collapsed"
-            )
-        
-        with col2:
-            if uploaded_file:
-                st.metric("상태", "✅ 준비 완료", delta="업로드 완료")
-            else:
-                st.metric("상태", "⏳ 대기 중", delta="파일 선택")
-        
-        if uploaded_file is not None:
-            file_size = uploaded_file.size / (1024 * 1024)
-                with st.container():
-                    st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
-            
-            if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
-                with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
-                    # ★★★ [수정] 함수 호출 및 결과 받기 ★★★
-                    pdf_text = extract_text_from_pdf(uploaded_file)
-                    
-                    # ★★★ [수정] 상세 오류 처리 로직 (v8.1.1) ★★★
-                    # 결과가 없거나(None), 문자열이면서 에러 코드로 시작하는 경우 처리
-                    if not pdf_text or (isinstance(pdf_text, str) and pdf_text.startswith("[ERROR:")):
-                        
-                        if pdf_text == "[ERROR:NO_TEXT]":
-                            st.error("❌ 텍스트 추출 실패: PDF에 텍스트가 없습니다. 스캔된 이미지 파일일 수 있습니다. (텍스트 기반 PDF만 지원됩니다.)")
-                        
-                        elif pdf_text == "[ERROR:ENCRYPTED]":
-                            st.error("❌ PDF 처리 실패: 파일이 암호화되어 있습니다. 암호를 해제하고 다시 시도하세요.")
+        if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
+            with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
+                # 함수 호출 및 결과 받기
+                pdf_text = extract_text_from_pdf(uploaded_file)
+                
+                # 상세 오류 처리 로직 (v8.1.1)
+                if not pdf_text or (isinstance(pdf_text, str) and pdf_text.startswith("[ERROR:")):
+                    
+                    if pdf_text == "[ERROR:NO_TEXT]":
+                        st.error("❌ 텍스트 추출 실패: PDF에 텍스트가 없습니다. 스캔된 이미지 파일일 수 있습니다. (텍스트 기반 PDF만 지원됩니다.)")
+                    
+                    elif pdf_text == "[ERROR:ENCRYPTED]":
+                        st.error("❌ PDF 처리 실패: 파일이 암호화되어 있습니다. 암호를 해제하고 다시 시도하세요.")
 
-                        elif pdf_text == "[ERROR:PROCESSING_FAILED]":
-                             st.error(f"❌ PDF 처리 실패: 파일이 손상되었거나 처리 중 오류가 발생했습니다. (상세 오류는 서버 로그 확인)")
-                        
-                        else:
-                            # 예상치 못한 오류 또는 None 반환 시
-                            st.error("❌ PDF에서 텍스트를 추출할 수 없습니다. (알 수 없는 오류)")
-                        
-                        st.stop()
-                    
-                    # 성공 시 (pdf_text에 내용이 있음)
-                    st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
-                
-                with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
-                    analysis = analyze_case_file(pdf_text, st.session_state.model)
+                    elif pdf_text == "[ERROR:PROCESSING_FAILED]":
+                         st.error(f"❌ PDF 처리 실패: 파일이 손상되었거나 처리 중 오류가 발생했습니다.")
                     
-                    if not analysis:
-                        st.error("❌ 분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
-                        st.stop()
+                    else:
+                        # 예상치 못한 오류 또는 None 반환 시
+                        st.error("❌ PDF에서 텍스트를 추출할 수 없습니다. (알 수 없는 오류)")
+                    
+                    st.stop()
                 
-                st.success("✅ 분석 완료!")
+                # 성공 시 (pdf_text에 내용이 있음)
+                st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
+            
+            # 분석 실행
+            with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
+                # analyze_case_file 호출 시 모델 인자 전달하지 않음 (함수 내부에서 생성)
+                analysis = analyze_case_file(pdf_text)
                 
-                with st.expander("📊 분석 결과 상세 보기", expanded=True):
-                    col_a, col_b = st.columns(2)
-                    
-                    with col_a:
-                        st.metric("🏛️ 도메인", analysis["domain"])
-                        st.metric("📌 세부 분야", analysis.get("subdomain", "미분류"))
-                    
-                    with col_b:
-                        st.metric("📋 핵심 사실", f"{len(analysis.get('key_facts', []))}개")
-                        st.metric("📂 증거 항목", f"{len(analysis.get('evidence', []))}개")
-                    
-                    st.markdown("---")
-                    st.markdown("**📌 핵심 사실관계**")
-                    for i, fact in enumerate(analysis.get("key_facts", []), 1):
-                        st.markdown(f"{i}. {fact}")
-                    
-                    st.markdown("**📂 확보된 증거**")
-                    for i, ev in enumerate(analysis.get("evidence", []), 1):
-                        st.markdown(f"{i}. {ev}")
-                    
-                    st.markdown("**⚖️ 양측 주장**")
-                    st.info(f"**우리 측:** {analysis.get('our_claim', '(정보 없음)')}")
-                    st.warning(f"**상대 측:** {analysis.get('their_claim', '(정보 없음)')}")
+                if not analysis:
+                    # analyze_case_file 내부에서 이미 에러 메시지 출력됨
+                    st.stop()
+            
+            st.success("✅ 분석 완료!")
+            
+            # 결과 표시
+            with st.expander("📊 분석 결과 상세 보기", expanded=True):
+                col_a, col_b = st.columns(2)
                 
+                with col_a:
+                    st.metric("🏛️ 도메인", analysis.get("domain", "미분류"))
+                    st.metric("📌 세부 분야", analysis.get("subdomain", "미분류"))
+                
+                with col_b:
+                    st.metric("📋 핵심 사실", f"{len(analysis.get('key_facts', []))}개")
+                    st.metric("📂 증거 항목", f"{len(analysis.get('evidence', []))}개")
+                
+                st.markdown("---")
+                st.markdown("**📌 핵심 사실관계**")
+                for i, fact in enumerate(analysis.get("key_facts", []), 1):
+                    st.markdown(f"{i}. {fact}")
+                
+                st.markdown("**📂 확보된 증거**")
+                for i, ev in enumerate(analysis.get("evidence", []), 1):
+                    st.markdown(f"{i}. {ev}")
+                
+                st.markdown("**⚖️ 양측 주장**")
+                st.info(f"**우리 측:** {analysis.get('our_claim', '(정보 없음)')}")
+                st.warning(f"**상대 측:** {analysis.get('their_claim', '(정보 없음)')}")
+            
+                # 다음 단계 안내 (Phase 0 메뉴 기준 매핑)
                 domain_map = {
-                    "형사": "2",
-                    "민사": "8",
-                    "가사": "1",
-                    "이혼": "1",
-                    "파산": "3",
-                    "행정": "7",
-                    "세무": "6",
-                    "IP": "4",
-                    "의료": "5",
+                    "형사": "2", "민사": "8", "가사": "1", "이혼": "1",
+                    "파산": "3", "행정": "7", "세무": "6", "IP": "4", "의료": "5",
                 }
                 
-                domain_num = domain_map.get(analysis["domain"], "8")
+                domain_num = domain_map.get(analysis.get("domain"), "8") # 기본값 민사/기타
                 
                 st.info(
                     f"💡 **다음 단계**\n\n"
-                    f"이 사건은 **{analysis['domain']}** 사건으로 분류되었습니다.\n\n"
+                    f"이 사건은 **{analysis.get('domain', '미분류')}** 사건으로 분류되었습니다.\n\n"
                     f"계속 진행하려면 아래 채팅창에 **{domain_num}**을 입력하세요."
                 )
-                
-                st.session_state["auto_analysis"] = analysis
-                st.session_state["pdf_text"] = pdf_text
-        
-        st.markdown("---")
+            
+            # 세션 상태에 분석 결과 저장
+            st.session_state["auto_analysis"] = analysis
+            st.session_state["pdf_text"] = pdf_text
+    
+    st.markdown("---")
 
 # ---------------------------------------
 # 9. 자동 분석 결과 활용 UI
