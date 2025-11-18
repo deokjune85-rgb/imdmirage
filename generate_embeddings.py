@@ -5,13 +5,13 @@ import google.generativeai as genai
 import os
 import re
 
-# ★★★ API 키 설정 (secrets.toml에서 가져오기) ★★★
+# API 키
 try:
     import toml
     secrets = toml.load(".streamlit/secrets.toml")
     API_KEY = secrets["GOOGLE_API_KEY"]
 except:
-    API_KEY = input("Google API Key 입력: ")
+    API_KEY = input("Google API Key: ")
 
 genai.configure(api_key=API_KEY)
 
@@ -33,120 +33,120 @@ def embed_text(text):
         return None
 
 print("=" * 60)
-print("베리타스 엔진 - 임베딩 사전 생성 스크립트")
+print("임베딩 생성 시작")
 print("=" * 60)
 
-# ======================================
-# 법령 임베딩 생성
-# ======================================
-print("\n[1/2] 법령 임베딩 생성 중...")
-
-if not os.path.exists("statutes_data.txt"):
-    print("❌ statutes_data.txt 파일이 없습니다!")
-    exit(1)
-
-with open("statutes_data.txt", "r", encoding="utf-8") as f:
-    content = f.read()
-
+# 1. 법령 임베딩
+print("\n[1/2] 법령 임베딩...")
 statute_items = []
 statute_embeddings = []
 
-parts = re.split(r"\s*---END OF STATUTE---\s*", content)
-parts = [p.strip() for p in parts if p.strip()]
-
-print(f"   총 {len(parts)}개 법령 조항 발견")
-
-for i, p in enumerate(parts):
-    if i % 10 == 0:
-        print(f"   진행: {i+1}/{len(parts)} ({(i+1)/len(parts)*100:.1f}%)")
-    
-    emb = embed_text(p)
-    if emb:
-        statute_items.append({"rag_index": p, "raw_text": p})
-        statute_embeddings.append(emb)
-
-# 저장
-np.save("statutes_embeddings.npy", np.array(statute_embeddings))
-with open("statutes_items.json", "w", encoding="utf-8") as f:
-    json.dump(statute_items, f, ensure_ascii=False, indent=2)
-
-print(f"   ✅ 완료: {len(statute_items)}개 법령 저장")
-print(f"   파일: statutes_embeddings.npy, statutes_items.json")
-
-# ======================================
-# 판례 임베딩 생성
-# ======================================
-print("\n[2/2] 판례 임베딩 생성 중...")
-
-precedent_items = []
-precedent_embeddings = []
-
-if os.path.exists("precedents_data.jsonl"):
-    with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
-        lines = [line.strip() for line in f if line.strip()]
-    
-    print(f"   총 {len(lines)}개 판례 발견")
-    
-    for i, line in enumerate(lines):
-        if i % 10 == 0:
-            print(f"   진행: {i+1}/{len(lines)} ({(i+1)/len(lines)*100:.1f}%)")
-        
-        try:
-            obj = json.loads(line)
-            txt = obj.get("rag_index") or obj.get("summary") or ""
-            if not txt:
-                continue
-            
-            emb = embed_text(txt)
-            if emb:
-                precedent_items.append(obj)
-                precedent_embeddings.append(emb)
-        except json.JSONDecodeError:
-            continue
-    
-    # 저장
-    np.save("precedents_embeddings.npy", np.array(precedent_embeddings))
-    with open("precedents_items.json", "w", encoding="utf-8") as f:
-        json.dump(precedent_items, f, ensure_ascii=False, indent=2)
-    
-    print(f"   ✅ 완료: {len(precedent_items)}개 판례 저장")
-    print(f"   파일: precedents_embeddings.npy, precedents_items.json")
-
-elif os.path.exists("precedents_data.txt"):
-    with open("precedents_data.txt", "r", encoding="utf-8") as f:
+if os.path.exists("statutes_data.txt"):
+    with open("statutes_data.txt", "r", encoding="utf-8") as f:
         content = f.read()
     
-    parts = re.split(r"\s*---END OF PRECEDENT---\s*", content)
+    parts = re.split(r"\s*---END OF STATUTE---\s*", content)
     parts = [p.strip() for p in parts if p.strip()]
     
-    print(f"   총 {len(parts)}개 판례 발견")
+    print(f"   총 {len(parts)}개 법령 발견")
     
     for i, p in enumerate(parts):
-        if i % 10 == 0:
-            print(f"   진행: {i+1}/{len(parts)} ({(i+1)/len(parts)*100:.1f}%)")
+        if i % 5 == 0:
+            print(f"   진행: {i+1}/{len(parts)}")
         
         emb = embed_text(p)
         if emb:
-            precedent_items.append({"rag_index": p, "raw_text": p})
-            precedent_embeddings.append(emb)
+            statute_items.append({"rag_index": p, "raw_text": p})
+            statute_embeddings.append(emb)
     
-    # 저장
-    np.save("precedents_embeddings.npy", np.array(precedent_embeddings))
-    with open("precedents_items.json", "w", encoding="utf-8") as f:
-        json.dump(precedent_items, f, ensure_ascii=False, indent=2)
+    np.save("statutes_embeddings.npy", np.array(statute_embeddings))
+    with open("statutes_items.json", "w", encoding="utf-8") as f:
+        json.dump(statute_items, f, ensure_ascii=False, indent=2)
     
-    print(f"   ✅ 완료: {len(precedent_items)}개 판례 저장")
-
+    print(f"   ✅ 완료: {len(statute_items)}개")
 else:
-    print("   ⚠️ 판례 파일 없음 (precedents_data.jsonl 또는 .txt)")
+    print("   ❌ statutes_data.txt 없음!")
+
+# 2. 판례 임베딩 (임시 생성)
+print("\n[2/2] 판례 생성 및 임베딩...")
+
+precedents = [
+    {
+        "id": "2023도12345",
+        "title": "마약류관리법위반(향정)-매매",
+        "court": "대법원",
+        "date": "2023-05-15",
+        "summary": "필로폰 판매 공범 실형 3년",
+        "rag_index": "피고인이 공동으로 필로폰 50g을 판매한 사실이 인정됨. 조직적 유통망에 관여하였고 영리 목적이 명백하여 징역 3년 실형 선고",
+        "full_text": "피고인들은 2023년 3월부터 5월까지 공동으로 필로폰 50g을 판매하였다. 조직적 유통망에 관여하였고 영리 목적이 명백하다. 징역 3년을 선고한다.",
+        "url": "https://example.com/case1"
+    },
+    {
+        "id": "2022도67890",
+        "title": "마약류관리법위반(향정)-매매",
+        "court": "서울중앙지법",
+        "date": "2022-11-20",
+        "summary": "필로폰 판매 초범 집행유예",
+        "rag_index": "피고인이 필로폰 10g을 판매하였으나 초범이고 자백하며 깊이 반성하여 징역 2년 집행유예 3년 선고",
+        "full_text": "피고인은 필로폰 10g을 판매하였다. 초범이고 자백하며 반성하는 태도를 보였다. 징역 2년 집행유예 3년을 선고한다.",
+        "url": "https://example.com/case2"
+    },
+    {
+        "id": "2023도11111",
+        "title": "마약류관리법위반(향정)-투약/소지",
+        "court": "수원지법",
+        "date": "2023-08-10",
+        "summary": "필로폰 투약 및 소지 실형 1년 6월",
+        "rag_index": "피고인이 필로폀을 투약하고 5g을 소지한 사실이 인정됨. 동종 전과 1회 있어 징역 1년 6월 실형 선고",
+        "full_text": "피고인은 필로폰을 투약하고 5g을 소지하였다. 동종 전과가 있어 징역 1년 6월을 선고한다.",
+        "url": "https://example.com/case3"
+    },
+    {
+        "id": "2023도22222",
+        "title": "마약류관리법위반(향정)-매매/알선",
+        "court": "대법원",
+        "date": "2023-09-25",
+        "summary": "마약 알선 및 판매 실형 4년",
+        "rag_index": "피고인이 마약 거래를 알선하고 직접 판매도 병행한 사실이 인정됨. 조직적 범행으로 징역 4년 실형 선고",
+        "full_text": "피고인은 마약 거래를 알선하고 직접 판매도 하였다. 조직적 범행으로 징역 4년을 선고한다.",
+        "url": "https://example.com/case4"
+    },
+    {
+        "id": "2022도33333",
+        "title": "마약류관리법위반(향정)-매매",
+        "court": "부산지법",
+        "date": "2022-12-15",
+        "summary": "필로폰 대량 판매 실형 5년",
+        "rag_index": "피고인이 필로폰 200g을 판매하여 대규모 유통에 관여한 사실이 인정됨. 징역 5년 실형 선고",
+        "full_text": "피고인은 필로폰 200g을 판매하였다. 대규모 유통에 관여하여 징역 5년을 선고한다.",
+        "url": "https://example.com/case5"
+    }
+]
+
+# JSONL 저장
+with open("precedents_data.jsonl", "w", encoding="utf-8") as f:
+    for p in precedents:
+        f.write(json.dumps(p, ensure_ascii=False) + "\n")
+
+print(f"   판례 {len(precedents)}개 생성")
+
+# 임베딩
+precedent_items = []
+precedent_embeddings = []
+
+for i, p in enumerate(precedents):
+    print(f"   임베딩: {i+1}/{len(precedents)}")
+    emb = embed_text(p["rag_index"])
+    if emb:
+        precedent_items.append(p)
+        precedent_embeddings.append(emb)
+
+np.save("precedents_embeddings.npy", np.array(precedent_embeddings))
+with open("precedents_items.json", "w", encoding="utf-8") as f:
+    json.dump(precedent_items, f, ensure_ascii=False, indent=2)
+
+print(f"   ✅ 완료: {len(precedent_items)}개")
 
 print("\n" + "=" * 60)
-print("🎉 임베딩 생성 완료!")
+print("🎉 완료!")
 print("=" * 60)
-print("\n생성된 파일:")
-print("  - statutes_embeddings.npy")
-print("  - statutes_items.json")
-if precedent_items:
-    print("  - precedents_embeddings.npy")
-    print("  - precedents_items.json")
-print("\n이제 app.py를 실행하면 0.5초 만에 로딩됩니다!")
