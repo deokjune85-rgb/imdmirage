@@ -409,40 +409,128 @@ if st.session_state.get("active_module") == "Auto-Analysis Mode":
 # ---------------------------------------
 # 9. 자동 분석 결과 활용 UI
 # ---------------------------------------
+# ---------------------------------------
+# 9. 자동 분석 결과 활용 UI (★★★ 핵심 수정 ★★★)
+# ---------------------------------------
 if "auto_analysis" in st.session_state and st.session_state.get("active_module") != "Auto-Analysis Mode":
     auto_data = st.session_state["auto_analysis"]
     
     st.success(
         "💡 **자동 분석 결과가 감지되었습니다!**\n\n"
-        "시스템이 변수 질문을 시작하면, 아래 버튼을 눌러 자동으로 답변할 수 있습니다."
+        "AI가 자동으로 해당 모듈을 실행하여 완전한 보고서를 생성합니다."
     )
     
-    if st.button("⚡ 자동 입력 활성화", type="secondary", use_container_width=True):
-        auto_input = f"""
+    # ★★★ 자동 모듈 실행 ★★★
+    domain_map = {
+        "형사": "2",
+        "민사": "8",
+        "가사": "1",
+        "이혼": "1",
+        "파산": "3",
+        "행정": "7",
+        "세무": "6",
+        "IP": "4",
+        "의료": "5",
+    }
+    
+    domain_num = domain_map.get(auto_data["domain"], "8")
+    
+    # 자동 입력 메시지 생성
+    auto_input = f"""
 [자동 추출된 사건 정보]
 
-**도메인:** {auto_data['domain']} - {auto_data.get('subdomain', '미분류')}
+도메인: {auto_data['domain']} - {auto_data.get('subdomain', '미분류')}
 
-**핵심 사실관계:**
+핵심 사실관계:
 {chr(10).join(f"{i}. {fact}" for i, fact in enumerate(auto_data.get('key_facts', []), 1))}
 
-**확보된 증거:**
+확보된 증거:
 {chr(10).join(f"- {ev}" for ev in auto_data.get('evidence', []))}
 
-**우리 측 주장:**
+우리 측 주장:
 {auto_data.get('our_claim', '(정보 없음)')}
 
-**상대방 주장:**
+상대방 주장:
 {auto_data.get('their_claim', '(정보 없음)')}
 
-위 정보를 바탕으로 시뮬레이션을 진행해주세요.
+위 정보를 바탕으로 '{domain_num}' 번 모듈을 실행하여 완전한 전략 보고서를 생성하십시오.
 """
-        
-        st.session_state.messages.append({"role": "user", "content": auto_input})
-        del st.session_state["auto_analysis"]
-        st.rerun()
+    
+    # 메시지 추가
+    st.session_state.messages.append({"role": "user", "content": f"자동 분석 완료. {domain_num}번 모듈 실행"})
+    
+    with st.chat_message("Client", avatar="👤"):
+        st.markdown(f"**자동 분석 결과를 바탕으로 {domain_num}번 모듈을 실행합니다.**")
+    
+    # AI에게 전송
+    with st.spinner("완전한 전략 보고서 생성 중... (1-2분 소요)"):
+        try:
+            # 1단계: 도메인 번호 입력
+            resp1 = st.session_state.chat.send_message(domain_num)
+            st.session_state.messages.append({"role": "Architect", "content": resp1.text})
+            
+            # 형사인 경우 2-1 자동 입력
+            if domain_num == "2":
+                # 세부 분야 매핑
+                subdomain_map = {
+                    "마약": "2-1",
+                    "성범죄": "2-2",
+                    "음주운전": "2-3",
+                    "도박": "2-4",
+                    "금융": "2-5",
+                    "명예훼손": "2-6",
+                    "유사수신": "2-7",
+                }
+                
+                subdomain_num = subdomain_map.get(auto_data.get("subdomain", ""), "2-8")
+                
+                resp2 = st.session_state.chat.send_message(subdomain_num)
+                st.session_state.messages.append({"role": "Architect", "content": resp2.text})
+            
+            # 2단계: 자동 입력 데이터 전송
+            resp3 = st.session_state.chat.send_message(auto_input)
+            
+            with st.chat_message("Architect", avatar="🛡️"):
+                st.markdown(resp3.text)
+            
+            st.session_state.messages.append({"role": "Architect", "content": resp3.text})
+            
+        except Exception as e:
+            st.error(f"자동 실행 실패: {e}")
+    
+    # 자동 분석 데이터 삭제
+    del st.session_state["auto_analysis"]
     
     st.markdown("---")
+```
+
+---
+
+## 🎯 작동 방식
+
+### Before (기존)
+```
+PDF 업로드 → 분석 → "2번 입력하세요" 메시지 → 사용자가 2 입력 → 2-1 입력 → 6개 질문 답변 → 보고서
+```
+
+### After (수정)
+```
+PDF 업로드 → 분석 → 자동으로 2 입력 → 자동으로 2-1 입력 → 추출 데이터 자동 전송 → 완전한 보고서 생성
+```
+
+---
+
+## 📝 추가 수정: `system_prompt.txt`
+
+AI가 자동 입력을 받았을 때 **Phase 1 질문을 건너뛰고** 바로 보고서 생성하도록 수정 필요.
+
+`system_prompt.txt`의 마약 모듈 부분 찾아서:
+```
+**[AI 실행 규칙: 특수 처리]**
+만약 사용자 입력에 "[자동 추출된 사건 정보]" 문구가 포함되어 있다면:
+1. Phase 1 질문을 건너뛴다
+2. 입력된 정보를 변수값으로 간주한다
+3. 즉시 Phase 3 (최종 보고서 생성)을 실행한다
 
 # ---------------------------------------
 # 10. 스트리밍 응답 함수
