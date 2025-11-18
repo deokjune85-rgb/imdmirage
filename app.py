@@ -92,49 +92,50 @@ def embed_text(text: str, task_type: str = "retrieval_document"):
 # ---------------------------------------
 @st.cache_data(show_spinner=False)
 def load_precomputed_embeddings():
-    """사전 계산된 임베딩 로드 (0.5초 완료)"""
+    """임베딩 파일이 없으면 실시간 생성"""
     statute_items = []
     statute_embeddings = []
     precedent_items = []
     precedent_embeddings = []
     
     # 법령 로드
-    if os.path.exists("statutes_embeddings.npy") and os.path.exists("statutes_items.json"):
-        statute_embeddings = np.load("statutes_embeddings.npy").tolist()
-        with open("statutes_items.json", "r", encoding="utf-8") as f:
-            statute_items = json.load(f)
+    if os.path.exists("statutes_data.txt"):
+        with open("statutes_data.txt", "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        parts = re.split(r"\s*---END OF STATUTE---\s*", content)
+        for p in parts:
+            p = p.strip()
+            if not p:
+                continue
+            emb = embed_text(p)
+            if emb:
+                statute_items.append({"rag_index": p, "raw_text": p})
+                statute_embeddings.append(emb)
+        
         print(f"[RAG] ✅ 법령 로드: {len(statute_items)}개")
     
     # 판례 로드
-    if os.path.exists("precedents_embeddings.npy") and os.path.exists("precedents_items.json"):
-        precedent_embeddings = np.load("precedents_embeddings.npy").tolist()
-        with open("precedents_items.json", "r", encoding="utf-8") as f:
-            precedent_items = json.load(f)
+    if os.path.exists("precedents_data.jsonl"):
+        with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    txt = obj.get("rag_index", "")
+                    if txt:
+                        emb = embed_text(txt)
+                        if emb:
+                            precedent_items.append(obj)
+                            precedent_embeddings.append(emb)
+                except:
+                    continue
+        
         print(f"[RAG] ✅ 판례 로드: {len(precedent_items)}개")
     
     return statute_items, statute_embeddings, precedent_items, precedent_embeddings
-
-def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
-    if not items or not embeddings:
-        return []
-
-    q_emb = embed_text(query_text, task_type="retrieval_query")
-    if q_emb is None:
-        return []
-
-    sims = np.dot(np.array(embeddings), np.array(q_emb))
-    idxs = np.argsort(sims)[::-1][:top_k]
-
-    results = []
-    for i in idxs:
-        score = float(sims[i])
-        if score < threshold:
-            continue
-        item = items[i].copy()
-        item["similarity"] = score
-        results.append(item)
-
-    return results
 
 # ---------------------------------------
 # 3. PDF 처리 함수
