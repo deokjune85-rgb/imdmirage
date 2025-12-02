@@ -17,7 +17,7 @@ TODAY_CODE = f"ORACLE{datetime.date.today().strftime('%m%d')}"
 MASTER_KEY = "PANTHEON777"
 
 st.set_page_config(
-    page_title="Veritas Sports AI | The Oracle Engine",
+    page_title="알파픽 AI | The Oracle Engine",
     page_icon="✨",
     layout="centered"
 )
@@ -127,7 +127,7 @@ def type_writer(text, placeholder, speed=0.03):
 def legal_disclaimer_gate():
     """서비스 진입 전 강제적으로 법적 고지 및 동의를 받습니다."""
     st.markdown('<div class="legal-shield">', unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center; color: #D4AF37;'>Veritas Sports AI</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #D4AF37;'>알파픽 Sports AI</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align: center;'>이용 약관 및 법적 고지</h3>", unsafe_allow_html=True)
     
     st.error("⚠️ 경고: 서비스를 이용하기 전에 다음 사항에 동의해야 합니다.")
@@ -138,7 +138,7 @@ def legal_disclaimer_gate():
         agree2 = st.checkbox("[필수] **준법 서약:** 국민체육진흥법을 준수하며, 불법 사설 사이트 이용을 금지합니다. 합법적인 투표권(스포츠토토/배트맨) 이용을 권장함에 동의합니다.")
         agree3 = st.checkbox("[필수] **환불 불가 정책:** VIP 접근 코드는 디지털 콘텐츠 특성상, 발급 및 사용 이후 환불이 불가능함에 동의합니다.")
 
-        submit_button = st.form_submit_button(label='동의하고 Veritas AI 시작하기')
+        submit_button = st.form_submit_button(label='동의하고 알파픽 AI 시작하기')
 
         if submit_button:
             if agree1 and agree2 and agree3:
@@ -245,7 +245,7 @@ def stream_analysis(match_data):
     st.markdown("### AI 최종 코멘트")
     
     if "역배 감지" in signal:
-        comment = f"주의가 필요합니다. 시장은 홈팀의 승리를 예상하지만, Veritas 엔진은 숨겨진 위험 변수를 감지했습니다. 이변 확률이 통계적 임계치를 초과했습니다. 고위험-고수익 베팅 구간입니다."
+        comment = f"주의가 필요합니다. 시장은 홈팀의 승리를 예상하지만, 알파픽 엔진은 숨겨진 위험 변수를 감지했습니다. 이변 확률이 통계적 임계치를 초과했습니다. 고위험-고수익 베팅 구간입니다."
     elif "강력 추천" in signal:
         comment = f"높은 확신 구간입니다. AI 예측 승률이 시장 배당률 대비 현저히 높습니다(가치 지수: {value_score}%). 이는 시장의 과소평가를 의미합니다. 적극적인 베팅을 권장합니다."
     else:
@@ -368,7 +368,7 @@ def handle_chat_query(query, df):
             # [★기획 4★] 무한 루프 방어 (Fallback Loop - 수익화 유도)
             if not match_found:
                 if any(x in query for x in ["안녕", "누구", "뭐야"]):
-                     response = "저는 Veritas Sports AI입니다. 시장 데이터를 분석하여 수익 창출을 돕는 전문가 시스템입니다."
+                     response = "저는 알파픽 Sports AI입니다. 시장 데이터를 분석하여 수익 창출을 돕는 전문가 시스템입니다."
                 else:
                     # 이해 못하는 질문은 비즈니스로 연결
                     response = f"저는 [스포츠 데이터 분석]에 특화된 AI입니다. '{query}'에 대한 직접적인 답변보다는 오늘 밤 수익을 낼 경기를 분석해 드릴 수 있습니다. 텔레그램 VIP 방에서는 실시간 고급 정보도 제공 중입니다."
@@ -384,14 +384,14 @@ def handle_chat_query(query, df):
 
 def main_app():
     # [Header]
-    st.markdown(f"<h1 style='text-align: center; font-family: serif; margin-bottom: 5px; color: #D4AF37;'>Veritas Sports AI</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; font-family: serif; margin-bottom: 5px; color: #D4AF37;'>알파픽 Sports AI</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; font-size:14px; color:#555; letter-spacing: 2px;'>THE ORACLE ENGINE | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>", unsafe_allow_html=True)
     st.divider()
 
     # 데이터 로드 (매 실행마다 변동됨)
     df = generate_simulated_data()
     
-    with st.spinner("Veritas 엔진이 최신 데이터를 분석 중입니다... (실시간 변동 적용)"):
+    with st.spinner("알파픽 엔진이 최신 데이터를 분석 중입니다... (실시간 변동 적용)"):
          time.sleep(0.5)
 
     VIP_PICKS_COUNT = 3
