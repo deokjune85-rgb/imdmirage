@@ -1,81 +1,84 @@
-import streamlit as st
-import google.generativeai as genai
-import os
-import re
-import json
-import numpy as np
-import PyPDF2
-import time
+# ... (앞부분 import 및 설정은 그대로) ...
 
 # ---------------------------------------
-# 0. 시스템 설정
+# 2. 데이터 로드 함수 (긴급 수정: 개수 제한 및 시각화)
 # ---------------------------------------
-st.set_page_config(
-    page_title="Veritas Engine 8.1 | Legal Architect",
-    page_icon="⚖️",
-    layout="centered"
-)
+@st.cache_resource
+def load_precomputed_embeddings():
+    statute_items = []
+    statute_embeddings = []
+    precedent_items = []
+    precedent_embeddings = []
 
-# API 키 설정 (Streamlit Secrets에서 가져오거나 환경변수 사용)
-# st.secrets["GOOGLE_API_KEY"] 설정이 필요합니다.
-if "GOOGLE_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-else:
-    st.error("Google API Key가 설정되지 않았습니다.")
-    st.stop()
+    # [긴급] 데모용 로딩 제한 (너무 많이 읽으면 멈춤)
+    DEMO_LIMIT = 5 
 
-SYSTEM_INSTRUCTION = """
-당신은 대한민국 최고의 법률 전문가이자 전략가인 'Veritas Architect'입니다.
-사용자의 질문이나 사건 기록을 분석하여 법리적 근거(조문, 판례)에 기반한 명확한 전략을 제시하십시오.
-"""
+    # 로딩 상태를 보여주기 위한 컨테이너
+    with st.status("📚 법률 데이터베이스 구축 중...", expanded=True) as status:
+        try:
+            # 1. 법령 로드
+            if os.path.exists("statutes_data.txt"):
+                st.write("📜 법령 데이터 스캔 중...")
+                with open("statutes_data.txt", "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                parts = re.split(r"\s*---END OF STATUTE---\s*", content)
+                
+                # [수정] 최대 개수 제한
+                for i, p in enumerate(parts):
+                    if i >= DEMO_LIMIT: break 
+                    
+                    p = p.strip()
+                    if not p: continue
+                    
+                    # API 호출
+                    emb = embed_text(p)
+                    if emb:
+                        statute_items.append({"rag_index": p, "raw_text": p})
+                        statute_embeddings.append(emb)
+                        time.sleep(0.5) # API 속도 조절 (Rate Limit 방지)
+                
+                st.write(f"✅ 법령 {len(statute_items)}건 적재 완료")
+            else:
+                st.warning("⚠️ 법령 데이터 파일(statutes_data.txt)이 없습니다.")
+            
+            # 2. 판례 로드
+            if os.path.exists("precedents_data.jsonl"):
+                st.write("⚖️ 판례 데이터 스캔 중...")
+                with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
+                    count = 0
+                    for line in f:
+                        if count >= DEMO_LIMIT: break
+                        
+                        line = line.strip()
+                        if not line: continue
+                        
+                        try:
+                            obj = json.loads(line)
+                            txt = obj.get("rag_index", "")
+                            if txt:
+                                emb = embed_text(txt)
+                                if emb:
+                                    precedent_items.append(obj)
+                                    precedent_embeddings.append(emb)
+                                    count += 1
+                                    time.sleep(0.5) # API 속도 조절
+                        except:
+                            continue
+                
+                st.write(f"✅ 판례 {len(precedent_items)}건 적재 완료")
+            else:
+                st.warning("⚠️ 판례 데이터 파일(precedents_data.jsonl)이 없습니다.")
+                
+            status.update(label="시스템 준비 완료", state="complete", expanded=False)
+            
+        except Exception as e:
+            st.error(f"[시스템 초기화 오류] {e}")
+            print(f"[RAG 로딩 에러] {e}")
 
-EMBEDDING_MODEL_NAME = "models/text-embedding-004"
+    return statute_items, statute_embeddings, precedent_items, precedent_embeddings
 
-# ---------------------------------------
-# 1. 임베딩 및 RAG 검색 함수
-# ---------------------------------------
-def embed_text(text: str, task_type: str = "retrieval_document"):
-    """텍스트 임베딩 생성"""
-    clean_text = text.replace("\n", " ").strip()
-    if not clean_text:
-        return None
-    try:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL_NAME,
-            content=clean_text,
-            task_type=task_type
-        )
-        return result['embedding']
-    except Exception as e:
-        print(f"[Embedding error] {e}")
-        return None
-
-def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
-    """유사도 검색"""
-    if not items or not embeddings:
-        return []
-
-    try:
-        q_emb = embed_text(query_text, task_type="retrieval_query")
-        if q_emb is None:
-            return []
-
-        sims = np.dot(np.array(embeddings), np.array(q_emb))
-        idxs = np.argsort(sims)[::-1][:top_k]
-
-        results = []
-        for i in idxs:
-            score = float(sims[i])
-            if score < threshold:
-                continue
-            item = items[i].copy()
-            item["similarity"] = score
-            results.append(item)
-
-        return results
-    except Exception as e:
-        print(f"[RAG Error] {e}")
-        return []
+# ... (나머지 코드는 그대로 유지) ...
 
 # ---------------------------------------
 # 2. 데이터 로드 함수 (사전 임베딩)
