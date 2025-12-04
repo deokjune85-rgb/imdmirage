@@ -215,35 +215,36 @@ except FileNotFoundError:
 # ---------------------------------------
 # 5. Phase 0 — 도메인 선택 UI
 # ---------------------------------------
-DEFAULT_OPTION = "선택 안 함 (자동 판단)"
-domain_options = [
-    DEFAULT_OPTION,
-    "형사",
-    "민사",
-    "가사/이혼",
-    "행정",
-    "노동",
-    "부동산",
-    "지적재산",
-    "조세",
-    "기타(혼합)",
-]
+domain_options = {
+    "0": "선택 안 함 (자동 판단)",
+    "1": "형사",
+    "2": "민사",
+    "3": "가사/이혼",
+    "4": "행정",
+    "5": "노동",
+    "6": "부동산",
+    "7": "지적재산",
+    "8": "조세",
+    "9": "기타(혼합)",
+}
 
 # 세션 상태 초기화
 if "selected_domain" not in st.session_state:
-    st.session_state.selected_domain = DEFAULT_OPTION
+    st.session_state.selected_domain = "선택 안 함 (자동 판단)"
 
 st.subheader("Phase 0 — 사건 도메인 선택")
 
-# 라디오 버튼
-selected_domain = st.radio(
-    "현재 사건이 속한 주 도메인을 선택하세요. (선택 안 함 시 시스템이 자동으로 판단합니다.)",
-    domain_options,
-    index=domain_options.index(st.session_state.selected_domain),
-    horizontal=True,
-)
+# 도메인 선택지 표시
+domain_list = "\n".join([f"{k}. {v}" for k, v in domain_options.items()])
+st.markdown(f"""
+**현재 사건이 속한 주 도메인 번호를 입력하세요:**
 
-st.session_state.selected_domain = selected_domain
+{domain_list}
+
+*선택 안 함(0) 시 시스템이 자동으로 판단합니다.*
+""")
+
+selected_domain = st.session_state.selected_domain
 st.info(f"현재 도메인 설정: **{selected_domain}**")
 
 # ---------------------------------------
@@ -272,7 +273,7 @@ if "model" not in st.session_state:
     # 초기 인사/배치
     try:
         domain_info = selected_domain
-        if selected_domain == DEFAULT_OPTION:
+        if selected_domain == "선택 안 함 (자동 판단)":
             domain_info = "미정의 (시스템 자동 판단 필요)"
 
         init_prompt = (
@@ -346,92 +347,24 @@ if prompt := st.chat_input("사건 정보 또는 질문을 입력하세요..."):
     # Phase 상태 확인
     is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
 
-    # RAG 코퍼스 최초 로딩
-    if not st.session_state.statutes and not st.session_state.precedents:
-        with st.spinner("시스템 데이터베이스 초기화 중..."):
-            # 법령 JSONL -> 없으면 TXT 폴백
-            s_data, s_emb = load_and_embed_data("statutes_data.jsonl")
-            if not s_data:
-                s_data, s_emb = load_and_embed_data(
-                    "statutes_data.txt",
-                    r"\s*---END OF STATUTE---\s*",
-                )
-            st.session_state.statutes = s_data
-            st.session_state.s_embeddings = s_emb
-
-            # 판례 JSONL -> 없으면 TXT 폴백
-            p_data, p_emb = load_and_embed_data("precedents_data.jsonl")
-            if not p_data:
-                p_data, p_emb = load_and_embed_data(
-                    "precedents_data.txt",
-                    r"\s*---END OF PRECEDENT---\s*",
-                )
-            st.session_state.precedents = p_data
-            st.session_state.p_embeddings = p_emb
-
-    # RAG 검색 (메뉴 입력이 아니고, Phase 2가 아닐 때)
+    # RAG 비활성화 - 빠른 응답을 위해 제거
     rag_context = ""
     similar_precedents = []
 
-    if not _is_menu_input(prompt) and not is_data_ingestion_phase:
-        current_domain = st.session_state.selected_domain
-        if current_domain == DEFAULT_OPTION:
-            current_domain = "미정의 (자동 판단 중)"
-
-        contextual_query = (
-            f"현재 활성화된 모듈: {st.session_state.active_module}. "
-            f"선택된 도메인: {current_domain}. "
-            f"사용자 질문/사실관계: {prompt}"
-        )
-
-        with st.spinner("실시간 데이터베이스 분석 중... (Dual RAG: 법령/판례)"):
-            # 법령 검색
-            if st.session_state.statutes:
-                s_hits = find_similar_items(
-                    contextual_query,
-                    st.session_state.statutes,
-                    st.session_state.s_embeddings,
-                    top_k=3,
-                    threshold=0.75,
-                )
-                if s_hits:
-                    s_texts = []
-                    for hit in s_hits:
-                        txt = hit.get("rag_index") or hit.get("raw_text", "")
-                        s_texts.append(f"- {txt} (유사도: {hit['similarity']:.2f})")
-                    rag_context += (
-                        "\n\n[관련 법령 데이터베이스 검색 결과]\n" +
-                        "\n".join(s_texts)
-                    )
-
-            # 판례 검색
-            if st.session_state.precedents:
-                similar_precedents = find_similar_items(
-                    contextual_query,
-                    st.session_state.precedents,
-                    st.session_state.p_embeddings,
-                    top_k=3,
-                    threshold=0.75,
-                )
-                if similar_precedents:
-                    p_texts = []
-                    for prec in similar_precedents:
-                        txt = prec.get("rag_index") or prec.get("summary", "")
-                        p_texts.append(f"- {txt} (유사도: {prec['similarity']:.2f})")
-                    rag_context += (
-                        "\n\n[관련 판례 데이터베이스 검색 결과]\n" +
-                        "\n".join(p_texts)
-                    )
-
+    # 도메인 번호 입력 처리
+    if prompt.strip() in domain_options:
+        selected = domain_options[prompt.strip()]
+        st.session_state.selected_domain = selected
+        st.rerun()
+    
     # 최종 프롬프트 구성
     current_domain = st.session_state.selected_domain
-    if current_domain == DEFAULT_OPTION:
+    if current_domain == "선택 안 함 (자동 판단)":
         current_domain = "미정의 (시스템 자동 판단 필요)"
 
     final_prompt = (
         f"[현재 설정된 도메인] {current_domain}\n"
         f"[사용자 원문 입력]\n{prompt}\n"
-        f"{rag_context}"
     )
 
     # 시스템 응답 생성
