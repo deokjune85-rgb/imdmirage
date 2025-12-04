@@ -5,8 +5,6 @@ import streamlit as st
 import google.generativeai as genai
 import os
 import re
-import json
-import numpy as np
 import time
 
 # ---------------------------------------
@@ -69,114 +67,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # ---------------------------------------
-# 2. 임베딩 / RAG 유틸
-# ---------------------------------------
-EMBEDDING_MODEL_NAME = "models/text-embedding-004"
-
-
-def embed_text(text: str, task_type: str = "retrieval_document"):
-    """텍스트를 임베딩 벡터로 변환"""
-    clean_text = text.replace("\n", " ").strip()
-    if not clean_text:
-        return None
-    try:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL_NAME,
-            content=clean_text,
-            task_type=task_type
-        )
-        return result["embedding"]
-    except Exception as e:
-        print(f"[Embedding error] {e}")
-        return None
-
-
-@st.cache_data(show_spinner=True)
-def load_and_embed_data(file_path: str, separator_regex: str = None):
-    """
-    데이터 파일을 로드하고 임베딩 생성
-    - .jsonl: 줄 단위 JSON -> item['rag_index']를 임베딩
-    - .txt: separator_regex 기준으로 분할하여 임베딩
-    """
-    if not os.path.exists(file_path):
-        print(f"[RAG] File not found: {file_path}")
-        return [], []
-    
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except Exception as e:
-        print(f"[RAG] Error reading file: {e}")
-        return [], []
-    
-    if not content.strip():
-        return [], []
-
-    data_items = []
-    embeddings = []
-
-    # JSONL 파일 처리
-    if file_path.endswith(".jsonl"):
-        for line in content.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            
-            txt = obj.get("rag_index") or obj.get("summary") or ""
-            if not txt:
-                continue
-            
-            emb = embed_text(txt, task_type="retrieval_document")
-            if emb:
-                data_items.append(obj)
-                embeddings.append(emb)
-    
-    # TXT 파일 처리
-    elif separator_regex:
-        parts = re.split(separator_regex, content)
-        for p in parts:
-            p = p.strip()
-            if not p:
-                continue
-            emb = embed_text(p, task_type="retrieval_document")
-            if emb:
-                data_items.append({"rag_index": p, "raw_text": p})
-                embeddings.append(emb)
-    
-    print(f"[RAG] Loaded {len(data_items)} items from {file_path}")
-    return data_items, embeddings
-
-
-def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
-    """쿼리와 유사한 항목 검색"""
-    if not items or not embeddings:
-        return []
-    
-    q_emb = embed_text(query_text, task_type="retrieval_query")
-    if q_emb is None:
-        return []
-    
-    sims = np.dot(np.array(embeddings), np.array(q_emb))
-    idxs = np.argsort(sims)[::-1][:top_k]
-    
-    results = []
-    for i in idxs:
-        score = float(sims[i])
-        if score < threshold:
-            continue
-        item = items[i].copy()
-        item["similarity"] = score
-        results.append(item)
-    
-    return results
-
-
-# ---------------------------------------
-# 3. 각종 유틸 함수
+# 2. 유틸 함수
 # ---------------------------------------
 def _is_menu_input(s: str) -> bool:
     """메뉴 선택 입력인지 확인 (예: 1, 2-3)"""
@@ -203,7 +94,7 @@ def update_active_module(response_text: str):
 
 
 # ---------------------------------------
-# 4. 시스템 프라임 프롬프트 로드
+# 3. 시스템 프라임 프롬프트 로드
 # ---------------------------------------
 try:
     with open("system_instruction.txt", "r", encoding="utf-8") as f:
@@ -213,7 +104,7 @@ except FileNotFoundError:
     st.stop()
 
 # ---------------------------------------
-# 5. Phase 0 — 도메인 선택 UI
+# 4. Phase 0 — 도메인 선택 UI
 # ---------------------------------------
 domain_options = {
     "0": "선택 안 함 (자동 판단)",
@@ -263,12 +154,6 @@ if "model" not in st.session_state:
 
     st.session_state.messages = []
     st.session_state.active_module = f"Phase 0 — {selected_domain}"
-
-    # RAG 코퍼스 지연 로딩 설정
-    st.session_state.precedents = []
-    st.session_state.p_embeddings = []
-    st.session_state.statutes = []
-    st.session_state.s_embeddings = []
 
     # 초기 인사/배치
     try:
@@ -372,37 +257,3 @@ if prompt := st.chat_input("사건 정보 또는 질문을 입력하세요..."):
         st.session_state.chat,
         final_prompt,
     )
-
-    # 판례 카드 시각화
-    clean_response = re.sub("<[^<]+?>", "", current_response)
-
-    if _is_final_report(clean_response) and similar_precedents:
-        st.subheader("📚 참고 판례 요약")
-        for idx, prec in enumerate(similar_precedents, start=1):
-            case_number = prec.get("case_number", f"판례 {idx}")
-            summary = prec.get("summary", prec.get("rag_index", "요약 없음"))
-            court = prec.get("court", "법원 정보 없음")
-            date = prec.get("date", "날짜 정보 없음")
-            similarity = prec.get("similarity", 0.0)
-            full_text = prec.get("full_text", "전문 없음")
-
-            card_html = f"""
-            <div class="precedent-card">
-                <h4>📖 {case_number}</h4>
-                <span class="similarity">유사도: {similarity:.1%}</span>
-                <p><strong>법원:</strong> {court}</p>
-                <p><strong>선고일:</strong> {date}</p>
-                <p><strong>요지:</strong> {summary[:300]}...</p>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
-
-            if full_text and full_text != "전문 없음":
-                with st.expander("📄 판례 전문 보기"):
-                    st.text(full_text)
-
-    elif _is_final_report(clean_response) and not similar_precedents and not _is_menu_input(prompt):
-        st.info(
-            "ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. "
-            "(임계값 0.75)"
-        )
