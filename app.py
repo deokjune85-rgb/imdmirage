@@ -107,7 +107,6 @@ except FileNotFoundError:
 # 4. Phase 0 — 도메인 선택 UI
 # ---------------------------------------
 domain_options = {
-    "0": "선택 안 함 (자동 판단)",
     "1": "형사",
     "2": "민사",
     "3": "가사/이혼",
@@ -117,6 +116,7 @@ domain_options = {
     "7": "지적재산",
     "8": "조세",
     "9": "기타(혼합)",
+    "0": "선택 안 함 (자동 판단)",
 }
 
 # 세션 상태 초기화
@@ -125,14 +125,22 @@ if "selected_domain" not in st.session_state:
 
 st.subheader("Phase 0 — 사건 도메인 선택")
 
-# 도메인 선택지 표시
-domain_list = "\n".join([f"{k}. {v}" for k, v in domain_options.items()])
+# 도메인 선택지 표시 (1-9, 0 순서로)
 st.markdown(f"""
 **현재 사건이 속한 주 도메인 번호를 입력하세요:**
 
-{domain_list}
+1. 형사
+2. 민사
+3. 가사/이혼
+4. 행정
+5. 노동
+6. 부동산
+7. 지적재산
+8. 조세
+9. 기타(혼합)
+0. 선택 안 함 (자동 판단)
 
-*선택 안 함(0) 시 시스템이 자동으로 판단합니다.*
+*채팅창에 번호를 입력하세요 (예: 1)*
 """)
 
 selected_domain = st.session_state.selected_domain
@@ -224,10 +232,23 @@ def stream_and_store_response(chat_session, prompt_to_send: str,
 # ---------------------------------------
 # 9. 메인 입력 루프 + Dual RAG
 # ---------------------------------------
-if prompt := st.chat_input("사건 정보 또는 질문을 입력하세요..."):
+if prompt := st.chat_input("사건 정보 또는 도메인 번호를 입력하세요..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("Client", avatar="👤"):
         st.markdown(prompt, unsafe_allow_html=True)
+
+    # 도메인 번호 입력 처리 (먼저 확인)
+    prompt_stripped = prompt.strip()
+    if prompt_stripped in domain_options:
+        selected = domain_options[prompt_stripped]
+        st.session_state.selected_domain = selected
+        
+        # 메시지 추가
+        st.session_state.messages.append({
+            "role": "Architect", 
+            "content": f"✅ 도메인이 **{selected}**(으)로 설정되었습니다."
+        })
+        st.rerun()
 
     # Phase 상태 확인
     is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
@@ -235,12 +256,6 @@ if prompt := st.chat_input("사건 정보 또는 질문을 입력하세요..."):
     # RAG 비활성화 - 빠른 응답을 위해 제거
     rag_context = ""
     similar_precedents = []
-
-    # 도메인 번호 입력 처리
-    if prompt.strip() in domain_options:
-        selected = domain_options[prompt.strip()]
-        st.session_state.selected_domain = selected
-        st.rerun()
     
     # 최종 프롬프트 구성
     current_domain = st.session_state.selected_domain
