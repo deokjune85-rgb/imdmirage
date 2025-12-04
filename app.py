@@ -1,7 +1,87 @@
-# ... (앞부분 import 및 설정은 그대로) ...
+import streamlit as st
+import google.generativeai as genai
+import os
+import re
+import json
+import numpy as np
+import PyPDF2
+import time
 
 # ---------------------------------------
-# 2. 데이터 로드 함수 (긴급 수정: 개수 제한 및 시각화)
+# 0. 시스템 설정
+# ---------------------------------------
+st.set_page_config(
+    page_title="Veritas Engine 8.1 | Legal Architect",
+    page_icon="⚖️",
+    layout="centered"
+)
+
+# API 키 설정 (Streamlit Secrets에서 가져오거나 환경변수 사용)
+# .streamlit/secrets.toml 파일에 GOOGLE_API_KEY가 있어야 합니다.
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    # 로컬 테스트용 (배포 시에는 secrets 사용 권장)
+    # os.environ["GOOGLE_API_KEY"] = "YOUR_API_KEY"
+    st.warning("Google API Key가 설정되지 않았습니다. secrets.toml을 확인하세요.")
+    # st.stop() # 키 없으면 중단하려면 주석 해제
+
+SYSTEM_INSTRUCTION = """
+당신은 대한민국 최고의 법률 전문가이자 전략가인 'Veritas Architect'입니다.
+사용자의 질문이나 사건 기록을 분석하여 법리적 근거(조문, 판례)에 기반한 명확한 전략을 제시하십시오.
+"""
+
+EMBEDDING_MODEL_NAME = "models/text-embedding-004"
+
+# ---------------------------------------
+# 1. 임베딩 및 RAG 검색 함수
+# ---------------------------------------
+def embed_text(text: str, task_type: str = "retrieval_document"):
+    """텍스트 임베딩 생성"""
+    clean_text = text.replace("\n", " ").strip()
+    if not clean_text:
+        return None
+    try:
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            content=clean_text,
+            task_type=task_type
+        )
+        return result['embedding']
+    except Exception as e:
+        # API 할당량 초과 등 에러 시 None 반환 (중단 방지)
+        print(f"[Embedding error] {e}")
+        return None
+
+def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
+    """유사도 검색"""
+    if not items or not embeddings:
+        return []
+
+    try:
+        q_emb = embed_text(query_text, task_type="retrieval_query")
+        if q_emb is None:
+            return []
+
+        sims = np.dot(np.array(embeddings), np.array(q_emb))
+        idxs = np.argsort(sims)[::-1][:top_k]
+
+        results = []
+        for i in idxs:
+            score = float(sims[i])
+            if score < threshold:
+                continue
+            item = items[i].copy()
+            item["similarity"] = score
+            results.append(item)
+
+        return results
+    except Exception as e:
+        print(f"[RAG Error] {e}")
+        return []
+
+# ---------------------------------------
+# 2. 데이터 로드 함수 (최적화 버전)
 # ---------------------------------------
 @st.cache_resource
 def load_precomputed_embeddings():
@@ -10,7 +90,7 @@ def load_precomputed_embeddings():
     precedent_items = []
     precedent_embeddings = []
 
-    # [긴급] 데모용 로딩 제한 (너무 많이 읽으면 멈춤)
+    # [긴급] 데모용 로딩 제한 (너무 많이 읽으면 멈춤 방지)
     DEMO_LIMIT = 5 
 
     # 로딩 상태를 보여주기 위한 컨테이너
@@ -36,11 +116,11 @@ def load_precomputed_embeddings():
                     if emb:
                         statute_items.append({"rag_index": p, "raw_text": p})
                         statute_embeddings.append(emb)
-                        time.sleep(0.5) # API 속도 조절 (Rate Limit 방지)
+                        time.sleep(0.5) # API 속도 조절
                 
                 st.write(f"✅ 법령 {len(statute_items)}건 적재 완료")
             else:
-                st.warning("⚠️ 법령 데이터 파일(statutes_data.txt)이 없습니다.")
+                st.warning("⚠️ 법령 데이터 파일(statutes_data.txt)이 없습니다. (스킵)")
             
             # 2. 판례 로드
             if os.path.exists("precedents_data.jsonl"):
@@ -68,70 +148,13 @@ def load_precomputed_embeddings():
                 
                 st.write(f"✅ 판례 {len(precedent_items)}건 적재 완료")
             else:
-                st.warning("⚠️ 판례 데이터 파일(precedents_data.jsonl)이 없습니다.")
+                st.warning("⚠️ 판례 데이터 파일(precedents_data.jsonl)이 없습니다. (스킵)")
                 
             status.update(label="시스템 준비 완료", state="complete", expanded=False)
             
         except Exception as e:
             st.error(f"[시스템 초기화 오류] {e}")
             print(f"[RAG 로딩 에러] {e}")
-
-    return statute_items, statute_embeddings, precedent_items, precedent_embeddings
-
-# ... (나머지 코드는 그대로 유지) ...
-
-# ---------------------------------------
-# 2. 데이터 로드 함수 (사전 임베딩)
-# ---------------------------------------
-@st.cache_resource
-def load_precomputed_embeddings():
-    statute_items = []
-    statute_embeddings = []
-    precedent_items = []
-    precedent_embeddings = []
-
-    try:
-        # 법령 로드
-        if os.path.exists("statutes_data.txt"):
-            with open("statutes_data.txt", "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            parts = re.split(r"\s*---END OF STATUTE---\s*", content)
-            for p in parts:
-                p = p.strip()
-                if not p:
-                    continue
-                # 실제로는 임베딩 값이 저장된 파일을 로드하거나, 여기서 생성 (시간 소요됨)
-                # 여기서는 데모용으로 실시간 생성 로직 유지
-                emb = embed_text(p)
-                if emb:
-                    statute_items.append({"rag_index": p, "raw_text": p})
-                    statute_embeddings.append(emb)
-            
-            print(f"[RAG] ✅ 법령 로드: {len(statute_items)}개")
-        
-        # 판례 로드
-        if os.path.exists("precedents_data.jsonl"):
-            with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        txt = obj.get("rag_index", "")
-                        if txt:
-                            emb = embed_text(txt)
-                            if emb:
-                                precedent_items.append(obj)
-                                precedent_embeddings.append(emb)
-                    except:
-                        continue
-            
-            print(f"[RAG] ✅ 판례 로드: {len(precedent_items)}개")
-            
-    except Exception as e:
-        print(f"[RAG 로딩 에러] {e}")
 
     return statute_items, statute_embeddings, precedent_items, precedent_embeddings
 
@@ -232,8 +255,9 @@ def stream_and_store_response(chat_session, prompt_to_send: str):
 # 세션 초기화
 if "model" not in st.session_state:
     try:
+        # 최신 모델 (Gemini 1.5 Flash 권장 - 속도/비용 최적화)
         st.session_state.model = genai.GenerativeModel(
-            "models/gemini-2.0-flash-exp", # 최신 모델 사용
+            "models/gemini-1.5-flash", 
             system_instruction=SYSTEM_INSTRUCTION,
         )
         st.session_state.chat = st.session_state.model.start_chat(history=[])
@@ -327,7 +351,9 @@ if prompt := st.chat_input("명령 또는 내용을 입력하십시오."):
     if _is_reset_keyword(prompt):
         st.session_state.active_module = "Phase 0"
         st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.chat = st.session_state.model.start_chat(history=[]) # 대화 내역 초기화
+        # 모델 재설정 대신 채팅 세션만 리셋
+        if "model" in st.session_state:
+            st.session_state.chat = st.session_state.model.start_chat(history=[]) 
         
         reset_msg = "시스템을 초기화합니다. 메인 메뉴로 돌아갑니다."
         st.session_state.messages.append({"role": "Architect", "content": reset_msg})
@@ -344,7 +370,8 @@ if prompt := st.chat_input("명령 또는 내용을 입력하십시오."):
     # 3. 9번(PDF 모드) 진입 감지
     if prompt.strip() == "9":
         st.session_state.active_module = "Auto-Analysis Mode"
-        response_text = stream_and_store_response(st.session_state.chat, prompt)
+        # AI에게 9번 진입 알림 (응답은 PDF UI 설명)
+        response_text = stream_and_store_response(st.session_state.chat, "9번 모드 설명을 출력하라.")
         st.rerun()
     else:
         # 일반 응답 생성
