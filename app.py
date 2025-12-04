@@ -1,554 +1,537 @@
+# 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG (사전 임베딩)
+# 베리타스 엔진 8.1 - 완전 수정판
+
 import streamlit as st
-import pandas as pd
-import numpy as np
-import time
-import datetime
-import random
-import re
+import google.generativeai as genai
+@@ -73,6 +73,7 @@
+EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-# ---------------------------------------
-# 0. 시스템 설정 및 보안 코드 (THE LOCK)
-# ---------------------------------------
+def embed_text(text: str, task_type: str = "retrieval_document"):
+    """텍스트 임베딩 생성"""
+clean_text = text.replace("\n", " ").strip()
+if not clean_text:
+return None
+@@ -87,6 +88,33 @@ def embed_text(text: str, task_type: str = "retrieval_document"):
+print(f"[Embedding error] {e}")
+return None
 
-# [★중요★] 매일 아침 자동 변경되는 코드 설정 (ORACLE + MMDD)
-TODAY_CODE = f"ORACLE{datetime.date.today().strftime('%m%d')}"
+def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
+    """유사도 검색"""
+    if not items or not embeddings:
+        return []
 
-# [★백도어★] 마스터키
-MASTER_KEY = "PANTHEON777"
-
-st.set_page_config(
-    page_title="알파픽 AI | The Oracle Engine",
-    page_icon="✨",
-    layout="centered"
-)
-
-# [CSS: Ultra-Premium Dark & Interactive Elements]
-custom_css = """
-<style>
-    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    
-    /* 1. Core Theme */
-    .stApp { background-color: #0A0A0A !important; color: #F5F5F5 !important; font-family: 'Pretendard', sans-serif; }
-
-    /* 2. Hide Streamlit Branding */
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    
-    /* 3. Data Table Styling */
-    .stDataFrame thead th { background-color: #2C2C2C; color: #D4AF37; }
-    .stDataFrame tbody tr:nth-child(even) { background-color: #1A1A1A; }
-    .stDataFrame tbody tr:nth-child(odd) { background-color: #111111; }
-
-    /* 4. VIP Section (The Paywall) */
-    .vip-section {
-        border: 2px solid #D4AF37; padding: 25px; margin: 20px 0;
-        background-color: #1A1A1A; text-align: center; border-radius: 10px;
-    }
-    .lock-overlay { filter: blur(5px); pointer-events: none; user-select: none; }
-    
-    /* 5. CTA Button & Legal Disclaimer Button (Primary Buttons) */
-     div.stButton > button, button[kind="primary"] {
-        width: 100%;
-        background-color: #D4AF37 !important;
-        color: #000000 !important;
-        font-weight: bold;
-        border-radius: 8px;
-        padding: 15px;
-        border: none;
-        font-size: 18px;
-    }
-    div.stButton > button:hover, button[kind="primary"]:hover {
-        background-color: #B8860B !important;
-    }
-    
-    /* 6. Legal Shield Styling */
-    .legal-shield { background-color: #1A1A1A; padding: 30px; border-radius: 10px; border: 1px solid #333; }
-
-    /* 7. Terminal Box (Deep Dive Visualization) */
-    /* st.write_stream을 위한 스타일링 */
-    .terminal-output p {
-        background-color: #000000 !important;
-        color: #00FF00 !important; /* Green Text */
-        font-family: monospace !important;
-        padding: 20px !important;
-        border-radius: 8px !important;
-        border: 1px solid #333 !important;
-        min-height: 150px !important;
-        white-space: pre-wrap !important;
-    }
-    
-    /* 8. Chat Interface & Guide Chips Styling */
-    .stChatMessage { padding: 10px 0; }
-    
-    /* 가이드 칩 버튼 스타일링 */
-     .stApp .stHorizontalBlock div[data-testid="stButton"] > button {
-         background-color: #2C2C2C !important;
-         color: #AAAAAA !important;
-         border: 1px solid #444 !important;
-         border-radius: 20px !important;
-         padding: 8px 16px !important;
-         font-size: 14px !important;
-         width: auto !important;
-         font-weight: normal !important;
-    }
-    .stApp .stHorizontalBlock div[data-testid="stButton"] > button:hover {
-        border-color: #D4AF37 !important;
-        color: #D4AF37 !important;
-        background-color: #444444 !important;
-    }
-</style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
-
-# 세션 상태 초기화
-if 'unlocked' not in st.session_state: st.session_state.unlocked = False
-if 'agreed' not in st.session_state: st.session_state.agreed = False
-# [★수정★] animated 플래그 추가
-if 'chat_history' not in st.session_state: st.session_state.chat_history = []
-if 'analyze_match' not in st.session_state: st.session_state.analyze_match = None
-if 'last_analysis' not in st.session_state: st.session_state.last_analysis = None
-if 'temp_chat_input' not in st.session_state: st.session_state.temp_chat_input = None
-
-# [CRITICAL BUG FIX] 안정화된 타이핑 함수 (st.write_stream 대체)
-# st.write_stream보다 안정적임.
-def type_writer(text, placeholder, speed=0.03):
-    display_text = ""
     try:
-        for char in text:
-            display_text += char
-            placeholder.markdown(display_text + "▍")
-            time.sleep(speed)
-    finally:
-        # 최종 텍스트(커서 제거) 출력 보장
-        placeholder.markdown(display_text)
+        q_emb = embed_text(query_text, task_type="retrieval_query")
+        if q_emb is None:
+            return []
+
+        sims = np.dot(np.array(embeddings), np.array(q_emb))
+        idxs = np.argsort(sims)[::-1][:top_k]
+
+        results = []
+        for i in idxs:
+            score = float(sims[i])
+            if score < threshold:
+                continue
+            item = items[i].copy()
+            item["similarity"] = score
+            results.append(item)
+
+        return results
+    except Exception as e:
+        print(f"[RAG Error] {e}")
+        return []
 
 # ---------------------------------------
-# 1. 법적 방탄조끼 (THE SHIELD) - TOS Gate
+# 2-1. 사전 계산된 임베딩 로드
 # ---------------------------------------
-def legal_disclaimer_gate():
-    """서비스 진입 전 강제적으로 법적 고지 및 동의를 받습니다."""
-    st.markdown('<div class="legal-shield">', unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center; color: #D4AF37;'>알파픽 Sports AI</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center;'>이용 약관 및 법적 고지</h3>", unsafe_allow_html=True)
-    
-    st.error("⚠️ 경고: 서비스를 이용하기 전에 다음 사항에 동의해야 합니다.")
+@@ -98,49 +126,54 @@ def load_precomputed_embeddings():
+precedent_items = []
+precedent_embeddings = []
 
-    with st.form(key='agreement_form'):
-        st.markdown("본 서비스는 스포츠 데이터를 분석하여 통계적 확률을 제공하는 **'정보 제공 서비스'**입니다.")
-        agree1 = st.checkbox("[필수] **결과 면책:** AI 예측은 100%가 아니며, 경기 결과 및 금전적 손실에 대해 본 사는 어떠한 책임도 지지 않음에 동의합니다.")
-        agree2 = st.checkbox("[필수] **준법 서약:** 국민체육진흥법을 준수하며, 불법 사설 사이트 이용을 금지합니다. 합법적인 투표권(스포츠토토/배트맨) 이용을 권장함에 동의합니다.")
-        agree3 = st.checkbox("[필수] **환불 불가 정책:** VIP 접근 코드는 디지털 콘텐츠 특성상, 발급 및 사용 이후 환불이 불가능함에 동의합니다.")
-
-        submit_button = st.form_submit_button(label='동의하고 알파픽 AI 시작하기')
-
-        if submit_button:
-            if agree1 and agree2 and agree3:
-                st.session_state.agreed = True
-                st.rerun()
-            else:
-                st.warning("모든 필수 항목에 동의해야 서비스를 이용할 수 있습니다.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.stop()
-
-# ---------------------------------------
-# 2. 데이터 시뮬레이션 엔진 (LIVE ENGINE)
-# ---------------------------------------
-
-# 캐시 제거됨. 매 실행마다 데이터 변동.
-def generate_simulated_data():
-    """실행 시마다 미세하게 변동되는 데이터를 생성하여 실시간 분석처럼 보이게 함."""
-    matches = [
-        ("맨체스터 시티", "루턴 타운 (EPL)"), ("아스널", "첼시 (EPL)"), ("리버풀", "에버턴 (EPL)"), 
-        ("토트넘 홋스퍼", "웨스트햄 (EPL)"), ("바이에른 뮌헨", "도르트문트 (Bundes)"), ("레알 마드리드", "바르셀로나 (LaLiga)")
-    ]
-    
-    data = []
-
-    for i, (home, away) in enumerate(matches):
-        # 1. 시장 배당률 생성 (+/- 5% 실시간 변동 시뮬레이션)
-        base_odds = [1.10, 1.5, 1.7, 2.2, 1.3, 2.5]
-        fluctuation = np.random.uniform(0.95, 1.05)
-        odds_h = round(base_odds[i] * fluctuation, 2)
-        odds_h = max(1.01, odds_h)
+    # 법령 로드
+    if os.path.exists("statutes_data.txt"):
+        with open("statutes_data.txt", "r", encoding="utf-8") as f:
+            content = f.read()
         
-        market_prob_h = 1 / odds_h
-
-        # 2. AI 예측 확률 생성
-        if i == 0:
-            # 시나리오 1: 역배 감지
-            ai_prob_h = market_prob_h * np.random.uniform(0.55, 0.75)
-            signal = "🚨 역배 감지 (상대팀 승/무)"
-        elif i == 1 or i == 2:
-             # 시나리오 2, 3: 가치 베팅
-            ai_prob_h = market_prob_h * np.random.uniform(1.15, 1.35)
-            signal = "🔥 강력 추천 (홈 승)"
-        else:
-            # 나머지 경기
-            ai_prob_h = market_prob_h * np.random.uniform(0.92, 1.08)
-            signal = "관망 (Hold)"
-
-        ai_prob_h = min(ai_prob_h, 0.98)
-        value_score_h = round((ai_prob_h - market_prob_h) * 100, 1)
+        parts = re.split(r"\s*---END OF STATUTE---\s*", content)
+        for p in parts:
+            p = p.strip()
+            if not p:
+                continue
+            emb = embed_text(p)
+            if emb:
+                statute_items.append({"rag_index": p, "raw_text": p})
+                statute_embeddings.append(emb)
         
-        data.append({
-            "경기 (Match)": f"{home} vs {away}",
-            "시장 배당률 (Odds)": odds_h,
-            "AI 예측 승률 (%)": f"{int(ai_prob_h*100)}%",
-            "가치 지수 (Value)": value_score_h,
-            "AI 시그널": signal
-        })
+        print(f"[RAG] ✅ 법령 로드: {len(statute_items)}개")
+    
+    # 판례 로드
+    if os.path.exists("precedents_data.jsonl"):
+        with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    txt = obj.get("rag_index", "")
+                    if txt:
+                        emb = embed_text(txt)
+                        if emb:
+                            precedent_items.append(obj)
+                            precedent_embeddings.append(emb)
+                except:
+    try:
+        # 법령 로드
+        if os.path.exists("statutes_data.txt"):
+            with open("statutes_data.txt", "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            parts = re.split(r"\s*---END OF STATUTE---\s*", content)
+            for p in parts:
+                p = p.strip()
+                if not p:
+continue
+                emb = embed_text(p)
+                if emb:
+                    statute_items.append({"rag_index": p, "raw_text": p})
+                    statute_embeddings.append(emb)
+            
+            print(f"[RAG] 법령 로드: {len(statute_items)}개")
 
-    df = pd.DataFrame(data)
-    df['Abs_Value'] = df['가치 지수 (Value)'].abs()
-    df = df.sort_values(by="Abs_Value", ascending=False).reset_index(drop=True)
-    df = df.drop(columns=['Abs_Value'])
-    return df
+        print(f"[RAG] ✅ 판례 로드: {len(precedent_items)}개")
+        # 판례 로드
+        if os.path.exists("precedents_data.jsonl"):
+            with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        txt = obj.get("rag_index", "")
+                        if txt:
+                            emb = embed_text(txt)
+                            if emb:
+                                precedent_items.append(obj)
+                                precedent_embeddings.append(emb)
+                    except:
+                        continue
+            
+            print(f"[RAG] 판례 로드: {len(precedent_items)}개")
+    
+    except Exception as e:
+        print(f"[RAG 로딩 에러] {e}")
+
+return statute_items, statute_embeddings, precedent_items, precedent_embeddings
 
 # ---------------------------------------
-# 3. 딥다이브 분석 엔진 (The Terminal & Streaming)
+# 3. PDF 처리 함수
 # ---------------------------------------
+def extract_text_from_pdf(uploaded_file):
+    """PDF에서 텍스트 추출"""
+try:
+pdf_reader = PyPDF2.PdfReader(uploaded_file)
+text = ""
+@@ -158,6 +191,7 @@ def extract_text_from_pdf(uploaded_file):
+return None
 
-def stream_analysis(match_data):
-    """터미널 스타일로 분석 로그를 스트리밍하고, 결과를 세션 상태에 저장합니다."""
-    
-    match_name = match_data["경기 (Match)"]
-    signal = match_data["AI 시그널"]
-    value_score = match_data['가치 지수 (Value)']
-    
-    # 분석 로그 생성 (동일)
-    analysis_logs = [f"[{time.strftime('%H:%M:%S')}] 📡 Connecting to Global Sports Data Feed..."]
-    
-    if "역배 감지" in signal:
-        analysis_logs.append(f"[{time.strftime('%H:%M:%S')}] 🚨 ALERT: Anomaly detected. Adjusting Probability (-{abs(value_score)}%)...")
-    elif "강력 추천" in signal:
-         analysis_logs.append(f"[{time.strftime('%H:%M:%S')}] 🔥 CONFIDENCE: Momentum surge detected. Adjusting Probability (+{value_score}%)...")
+def analyze_case_file(pdf_text: str, model):
+    """PDF 내용 자동 분석"""
+analysis_prompt = f"""
+다음은 사건기록 PDF에서 추출한 내용입니다. 
 
-    analysis_logs.append(f"[{time.strftime('%H:%M:%S')}] 🧠 Running Monte Carlo Simulation (10,000 iterations)...")
-    analysis_logs.append(f"[{time.strftime('%H:%M:%S')}] ✅ Analysis Complete.")
-    
-    # 스트리밍 제너레이터 (st.write_stream 사용)
-    def generator():
-        for log in analysis_logs:
-            for char in log:
-                yield char
-                time.sleep(0.01)
-            yield "\n"
-            time.sleep(random.uniform(0.3, 0.8))
+@@ -200,27 +234,29 @@ def analyze_case_file(pdf_text: str, model):
+# 4. 각종 유틸 함수
+# ---------------------------------------
+def _is_menu_input(s: str) -> bool:
+    """메뉴 번호 입력 감지"""
+return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
 
-    # 터미널 박스 출력
-    st.markdown("#### 분석 로그 (Real-time)")
-    st.markdown('<div class="terminal-output">', unsafe_allow_html=True)
-    st.write_stream(generator())
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # 최종 코멘트 생성
-    st.markdown("### AI 최종 코멘트")
-    
-    if "역배 감지" in signal:
-        comment = f"주의가 필요합니다. 시장은 홈팀의 승리를 예상하지만, 알파픽 엔진은 숨겨진 위험 변수를 감지했습니다. 이변 확률이 통계적 임계치를 초과했습니다. 고위험-고수익 베팅 구간입니다."
-    elif "강력 추천" in signal:
-        comment = f"높은 확신 구간입니다. AI 예측 승률이 시장 배당률 대비 현저히 높습니다(가치 지수: {value_score}%). 이는 시장의 과소평가를 의미합니다. 적극적인 베팅을 권장합니다."
-    else:
-        comment = f"시장 예측과 AI 예측이 유사한 범위 내에 있습니다. 유의미한 시장 왜곡은 감지되지 않았습니다. 관망(Hold)을 권장합니다."
+def _is_reset_keyword(s: str) -> bool:
+    """처음으로/메인/초기화 키워드 감지"""
+    """초기화 키워드 감지"""
+keywords = ["처음", "메인", "초기화", "reset", "돌아가", "처음으로"]
+return any(kw in s.lower() for kw in keywords)
 
-    # [★수정★] 코멘트 스트리밍도 렌더링 루프에서 처리되도록 챗 히스토리에 추가
-    # st.write_stream(comment_generator()) 대신 세션 상태에 저장
-    
-    # [★기획 1★] 분석 완료 후 컨텍스트 저장
-    st.session_state.last_analysis = {
-        "match_name": match_name,
-        "signal": signal,
-        "value_score": value_score,
-        "comment": comment
-    }
-    # 코멘트를 챗 히스토리에 추가하여 자연스러운 흐름 유도 (애니메이션은 렌더링 루프에서 처리)
-    st.session_state.chat_history.append({"role": "assistant", "content": comment, "animated": False})
+def _is_final_report(txt: str) -> bool:
+    """최종 보고서 생성 여부 확인"""
+return "전략 브리핑 보고서" in txt
 
+def _query_title(prompt_text: str) -> str:
+    """쿼리 제목 생성"""
+return prompt_text[:67] + "..." if len(prompt_text) > 70 else prompt_text
+
+def update_active_module(response_text: str):
+    # Auto-Analysis Mode 감지 (엄격한 조건)
+    """활성 모듈 업데이트"""
+if ("9." in response_text and "사건기록 자동 분석 모드" in response_text) or \
+("Auto-Analysis Mode를 활성화합니다" in response_text):
+st.session_state.active_module = "Auto-Analysis Mode"
+return
+
+    # 일반 모듈 활성화
+m = re.search(r"'(.+?)' 모듈을 (?:최종 )?활성화합니다", response_text)
+if m:
+st.session_state.active_module = m.group(1).strip()
+@@ -245,7 +281,7 @@ def update_active_module(response_text: str):
+if "model" not in st.session_state:
+try:
+st.session_state.model = genai.GenerativeModel(
+            "models/gemini-2.5-flash",
+            "models/gemini-2.0-flash-exp",
+system_instruction=SYSTEM_INSTRUCTION,
+)
+st.session_state.chat = st.session_state.model.start_chat(history=[])
+@@ -280,127 +316,77 @@ def update_active_module(response_text: str):
+with st.chat_message(role_name, avatar=avatar):
+st.markdown(m["content"], unsafe_allow_html=True)
+
+if st.session_state.messages:
+    st.markdown(
+        '<script>setTimeout(()=>{const el=window.parent.document.querySelector("section.main");if(el)el.scrollTop=el.scrollHeight},100)</script>',
+        unsafe_allow_html=True
+    )
 
 # ---------------------------------------
-# 4. AI 챗 어시스턴트 (인지 강화 모듈)
+# 8. PDF 업로드 UI (★★★ 핵심 수정 ★★★)
+# 8. PDF 업로드 UI
 # ---------------------------------------
+# 조건: active_module이 정확히 "Auto-Analysis Mode"이고, 9번을 입력한 직후일 때만 표시
+if st.session_state.get("active_module") == "Auto-Analysis Mode":
+    # 마지막 사용자 메시지가 "9"인지 확인
+last_user_msg = None
+for m in reversed(st.session_state.messages):
+if m["role"] == "user":
+last_user_msg = m["content"].strip()
+break
 
-# [★기획 3★] 키워드 딕셔너리 및 NLP 개선
-SLANG_DICT = {
-    "TRUST": ["확실해", "믿어도 돼", "부러지면", "한강", "진짜지", "쫄려", "확신"],
-    "MONEY": ["얼마", "올인", "소액", "강승부", "시드", "배팅액", "금액"],
-    "ANOMALY": ["역배", "이변", "터지냐", "로또", "변수"],
-    "CONTEXT": ["아까 그거", "방금 본거", "이거 어때", "확인해줘", "이 경기"]
-}
+    # 9번 입력 직후에만 PDF UI 표시
+if last_user_msg == "9":
+st.markdown("---")
 
-# [★수정★] 약어 사전 추가
-ALIASES = {
-    "맨시티": "맨체스터 시티",
-    "뮌헨": "바이에른 뮌헨",
-    "레알": "레알 마드리드",
-    "바르샤": "바르셀로나",
-    "파리": "파리 생제르맹",
-}
+st.info("""
+       **📄 사건기록 자동 분석 모드란?**
+       
+       PDF 파일(판결문, 고소장, 답변서 등)을 업로드하면 AI가 자동으로:
+        - ✅ 사건 도메인 분류 (형사/민사/가사 등)
+        - ✅ 핵심 사실관계 5가지 추출
+        - ✅ 확보된 증거 목록 정리
+        - ✅ 양측 주장 요약
+        - 사건 도메인 분류 (형사/민사/가사 등)
+        - 핵심 사실관계 5가지 추출
+        - 확보된 증거 목록 정리
+        - 양측 주장 요약
+       
+       **처리 시간:** 약 1-3분 | **최대 크기:** 50MB | **형식:** 텍스트 기반 PDF만 가능
+       """)
 
-def normalize_query(query):
-    query = query.lower()
-    for alias, official in ALIASES.items():
-        if alias in query:
-            # Replace alias with official name for better matching
-            query = query.replace(alias, official)
-    return query
+st.subheader("📎 파일 업로드")
 
-# [★핵심 수정★] 로직 처리만 담당하고 렌더링은 제거
-def handle_chat_query(query, df):
-    """사용자의 질문에 대한 응답을 계산하고 세션 상태에 저장합니다."""
-    
-    response = ""
-    query = normalize_query(query) # 쿼리 정규화
-    
-    # [★기획 1★] 컨텍스트 활용
-    context = st.session_state.last_analysis
-    is_context_query = False
-    
-    if context:
-        other_match_mentioned = False
-        for index, row in df.iterrows():
-                match_name = row["경기 (Match)"]
-                # 정규화된 쿼리로 다른 경기 언급 확인
-                if match_name != context["match_name"] and any(word.lower() in query for word in match_name.split(" ") if len(word) > 2):
-                    other_match_mentioned = True
-                    break
+        col1, col2 = st.columns([3, 1])
         
-        if not other_match_mentioned and (
-            any(s in query for s in SLANG_DICT["CONTEXT"]) or 
-            any(s in query for s in SLANG_DICT["TRUST"]) or 
-            any(s in query for s in SLANG_DICT["MONEY"])):
-            
-            is_context_query = True
-            match_name = context["match_name"]
-            value = context["value_score"]
-            
-            # [★기획 3★] 슬랭 대응
-            if any(s in query for s in SLANG_DICT["TRUST"]):
-                response = f"[{match_name}] 분석 결과에 대한 질문이군요. 데이터는 감정보다 정확합니다. 현재 신뢰도 지수는 높음({abs(value)}점) 구간입니다. '한강' 갈 일은 통계적으로 낮습니다. 다만, 불안하시면 보험 베팅(무승부 방어)을 고려하십시오."
-            
-            elif any(s in query for s in SLANG_DICT["MONEY"]):
-                if abs(value) > 15:
-                     response = f"[{match_name}]은 가치 지수({value}%)가 높습니다. 시장 왜곡이 확인된 구간이므로 '강승부' (시드머니의 20%)를 추천합니다."
-                else:
-                    response = f"[{match_name}]은 안정적인 구간입니다. 시드머니의 10% 이내를 권장합니다."
-            
+        with col1:
+            uploaded_file = st.file_uploader(
+                "사건기록 PDF를 선택하세요",
+                type=["pdf"],
+                help="판결문, 고소장, 답변서, 사건기록 등",
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            if uploaded_file:
+                st.metric("상태", "✅ 준비 완료", delta="업로드 완료")
             else:
-                response = f"방금 분석한 [{match_name}] 말씀이시군요. AI의 최종 코멘트를 다시 확인해 드리겠습니다:\n\"{context['comment'][:100]}...\""
+                st.metric("상태", "⏳ 대기 중", delta="파일 선택")
+        uploaded_file = st.file_uploader(
+            "사건기록 PDF를 선택하세요",
+            type=["pdf"],
+            help="판결문, 고소장, 답변서, 사건기록 등",
+        )
 
-    if not is_context_query:
-        # [★기획 3★] 일반 키워드/슬랭 인식
-        if any(s in query for s in SLANG_DICT["ANOMALY"]):
-            underdog = df[df['AI 시그널'].str.contains("역배 감지")]
-            if not underdog.empty:
-                match_name = underdog.iloc[0]["경기 (Match)"]
-                response = f"현재 AI는 [{match_name}] 경기에서 심각한 시장 왜곡을 감지했습니다. 이변 가능성이 높습니다. 고배당을 노릴 기회입니다. Deep Dive를 확인하십시오."
-            else:
-                response = "현재 감지된 강력한 역배 시그널은 없습니다."
+if uploaded_file is not None:
+file_size = uploaded_file.size / (1024 * 1024)
+            
+            with st.container():
+                st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
+            st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
+
+if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
+                with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
+                with st.spinner("📄 PDF 텍스트 추출 중..."):
+pdf_text = extract_text_from_pdf(uploaded_file)
+
+if not pdf_text:
+                        st.error("❌ PDF에서 텍스트를 추출할 수 없습니다.")
+                        st.error("PDF에서 텍스트를 추출할 수 없습니다.")
+st.stop()
+
+                    st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
+                    st.success(f"텍스트 추출 완료 ({len(pdf_text):,} 글자)")
+
+                with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
+                with st.spinner("🧠 AI 분석 중..."):
+analysis = analyze_case_file(pdf_text, st.session_state.model)
+
+if not analysis:
+                        st.error("❌ 분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
+                        st.error("분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
+st.stop()
+
+                st.success("✅ 분석 완료!")
+                st.success("분석 완료!")
+
+with st.expander("📊 분석 결과 상세 보기", expanded=True):
+                    col_a, col_b = st.columns(2)
+                    
+                    with col_a:
+                        st.metric("🏛️ 도메인", analysis["domain"])
+                        st.metric("📌 세부 분야", analysis.get("subdomain", "미분류"))
+                    st.markdown(f"**도메인:** {analysis['domain']}")
+                    st.markdown(f"**세부 분야:** {analysis.get('subdomain', '미분류')}")
+
+                    with col_b:
+                        st.metric("📋 핵심 사실", f"{len(analysis.get('key_facts', []))}개")
+                        st.metric("📂 증거 항목", f"{len(analysis.get('evidence', []))}개")
+                    
+                    st.markdown("---")
+                    st.markdown("**📌 핵심 사실관계**")
+                    for i, fact in enumerate(analysis.get("key_facts", []), 1):
+                    st.markdown("**핵심 사실관계:**")
+                    for i, fact in enumerate(analysis.get('key_facts', []), 1):
+st.markdown(f"{i}. {fact}")
+
+                    st.markdown("**📂 확보된 증거**")
+                    for i, ev in enumerate(analysis.get("evidence", []), 1):
+                    st.markdown("**확보된 증거:**")
+                    for i, ev in enumerate(analysis.get('evidence', []), 1):
+st.markdown(f"{i}. {ev}")
+
+                    st.markdown("**⚖️ 양측 주장**")
+st.info(f"**우리 측:** {analysis.get('our_claim', '(정보 없음)')}")
+st.warning(f"**상대 측:** {analysis.get('their_claim', '(정보 없음)')}")
+
+                domain_map = {
+                    "형사": "2",
+                    "민사": "8",
+                    "가사": "1",
+                    "이혼": "1",
+                    "파산": "3",
+                    "행정": "7",
+                    "세무": "6",
+                    "IP": "4",
+                    "의료": "5",
+                }
                 
-        elif "추천" in query or "뭐가 좋아" in query:
-            response = "가장 신뢰도가 높은 경기는 VIP 픽 Top 3에 공개됩니다. VIP 코드를 입력하여 확인하십시오."
-        
-        elif "vip" in query or "구독" in query:
-             response = "VIP 멤버십은 월 99,000원이며, 매일 Top 3 픽 제공 및 실시간 텔레그램 알림방 입장이 가능합니다. 하단의 구매 안내를 참조하십시오."
-
-        else:
-            # 특정 경기 질문 확인
-            match_found = False
-            for index, row in df.iterrows():
-                match_name = row["경기 (Match)"]
-                # 정규화된 쿼리로 팀 이름 매칭
-                if any(word.lower() in query for word in match_name.split(" ") if len(word) > 2):
-                    signal = row["AI 시그널"]
-                    value = row["가치 지수 (Value)"]
-                    response = f"[{match_name}] 분석 결과: AI 시그널은 '{signal}'이며, 가치 지수는 {value}입니다. 더 자세한 내용은 Deep Dive 분석을 실행하십시오."
-                    match_found = True
-                    break
-            
-            # [★기획 4★] 무한 루프 방어 (Fallback Loop - 수익화 유도)
-            if not match_found:
-                if any(x in query for x in ["안녕", "누구", "뭐야"]):
-                     response = "저는 알파픽 Sports AI입니다. 시장 데이터를 분석하여 수익 창출을 돕는 전문가 시스템입니다."
-                else:
-                    # 이해 못하는 질문은 비즈니스로 연결
-                    response = f"저는 [스포츠 데이터 분석]에 특화된 AI입니다. '{query}'에 대한 직접적인 답변보다는 오늘 밤 수익을 낼 경기를 분석해 드릴 수 있습니다. 텔레그램 VIP 방에서는 실시간 고급 정보도 제공 중입니다."
-
-    # [★핵심 수정★] 응답을 세션 상태에 저장 (렌더링은 메인 루프에서 처리)
-    # animated=False 플래그 추가
-    st.session_state.chat_history.append({"role": "assistant", "content": response, "animated": False})
-
-
-# ---------------------------------------
-# 5. 메인 애플리케이션 로직 (★렌더링/로직 분리 적용★)
-# ---------------------------------------
-
-def main_app():
-    # [Header]
-    st.markdown(f"<h1 style='text-align: center; font-family: serif; margin-bottom: 5px; color: #D4AF37;'>알파픽 Sports AI</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; font-size:14px; color:#555; letter-spacing: 2px;'>THE ORACLE ENGINE | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>", unsafe_allow_html=True)
-    st.divider()
-
-    # 데이터 로드 (매 실행마다 변동됨)
-    df = generate_simulated_data()
-    
-    with st.spinner("알파픽 엔진이 최신 데이터를 분석 중입니다... (실시간 변동 적용)"):
-         time.sleep(0.5)
-
-    VIP_PICKS_COUNT = 3
-    vip_picks = df.head(VIP_PICKS_COUNT)
-    free_picks = df.tail(-VIP_PICKS_COUNT)
-
-    # ---------------------------------------
-    # VIP 섹션 (The Paywall) (이전과 동일)
-    # ---------------------------------------
-    st.markdown("<h2 style='color: #D4AF37; text-align: center;'>✨ VIP AI 추천 픽 (Top 3)</h2>", unsafe_allow_html=True)
-
-    if not st.session_state.unlocked:
-        st.markdown('<div class="vip-section">', unsafe_allow_html=True)
-        st.markdown('<div class="lock-overlay">', unsafe_allow_html=True)
-        st.dataframe(vip_picks, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown("### 🔒 오늘의 VIP 접근 코드 입력")
-        access_code = st.text_input("결제 후 발급받은 접근 코드를 입력하세요.", type="password")
-        
-        if st.button("VIP 픽 잠금 해제", type="primary", key="unlock_vip"):
-            if access_code == TODAY_CODE or access_code == MASTER_KEY:
-                st.session_state.unlocked = True
-                st.rerun()
-            else:
-                st.error("잘못된 코드입니다. (하단 참조)")
+                domain_num = domain_map.get(analysis["domain"], "8")
                 
-        st.warning("⚠️ 보안 경고: 코드 공유 감지 시 즉시 만료 및 영구 차단됩니다.")
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.info(
+                    f"💡 **다음 단계**\n\n"
+                    f"이 사건은 **{analysis['domain']}** 사건으로 분류되었습니다.\n\n"
+                    f"계속 진행하려면 아래 채팅창에 **{domain_num}**을 입력하세요."
+                )
+                
+st.session_state["auto_analysis"] = analysis
+st.session_state["pdf_text"] = pdf_text
 
-    else:
-        st.markdown('<div class="vip-section" style="border-color: #00E676;">', unsafe_allow_html=True)
-        st.success("✨ VIP 접근 활성화됨.")
-        st.dataframe(vip_picks, use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+@@ -412,12 +398,8 @@ def update_active_module(response_text: str):
+if "auto_analysis" in st.session_state and st.session_state.get("active_module") != "Auto-Analysis Mode":
+auto_data = st.session_state["auto_analysis"]
 
-    # [Monetization CTA]
-    if not st.session_state.unlocked:
-        st.markdown("---")
-        st.markdown("### 💎 VIP 접근 코드 구매하기")
-        st.info(f"""
-        **[가격 정책]** 1일 이용권: 10,000원 | VIP 월 구독: 99,000원
-        
-        **[구매 방법]** 입금 후 아래 카카오톡 채널로 연락주시면 1분 내로 코드를 발급해 드립니다.
-        👉 **[여기에 네 카카오톡 채널 링크 삽입]**
-        """)
+    st.success(
+        "💡 **자동 분석 결과가 감지되었습니다!**\n\n"
+        "AI가 자동으로 해당 모듈을 실행하여 완전한 보고서를 생성합니다."
+    )
+    st.success("AI가 자동으로 해당 모듈을 실행하여 완전한 보고서를 생성합니다.")
 
-    # ---------------------------------------
-    # 딥다이브 분석기 (The Analyzer)
-    # ---------------------------------------
+    # 자동 모듈 실행
+domain_map = {
+"형사": "2",
+"민사": "8",
+@@ -432,7 +414,6 @@ def update_active_module(response_text: str):
+
+domain_num = domain_map.get(auto_data["domain"], "8")
+
+    # 자동 입력 메시지 생성
+auto_input = f"""
+[자동 추출된 사건 정보]
+
+@@ -450,25 +431,17 @@ def update_active_module(response_text: str):
+상대방 주장:
+{auto_data.get('their_claim', '(정보 없음)')}
+
+위 정보를 바탕으로 {domain_num}번 모듈을 실행하여 완전한 전략 보고서를 생성하십시오.
+위 정보를 바탕으로 완전한 전략 보고서를 생성하십시오.
+"""
+
+    # 메시지 추가
+st.session_state.messages.append({"role": "user", "content": f"자동 분석 완료. {domain_num}번 모듈 실행"})
+
+    with st.chat_message("Client", avatar="👤"):
+        st.markdown(f"**자동 분석 결과를 바탕으로 {domain_num}번 모듈을 실행합니다.**")
+    
+    # AI에게 전송
+    with st.spinner("완전한 전략 보고서 생성 중... (1-2분 소요)"):
+    with st.spinner("완전한 전략 보고서 생성 중..."):
+try:
+            # 1단계: 도메인 번호 입력
+resp1 = st.session_state.chat.send_message(domain_num)
+st.session_state.messages.append({"role": "Architect", "content": resp1.text})
+
+            # 형사인 경우 2-1 자동 입력
+if domain_num == "2":
+                # 세부 분야 매핑
+subdomain_map = {
+"마약": "2-1",
+"성범죄": "2-2",
+@@ -484,7 +457,6 @@ def update_active_module(response_text: str):
+resp2 = st.session_state.chat.send_message(subdomain_num)
+st.session_state.messages.append({"role": "Architect", "content": resp2.text})
+
+            # 2단계: 자동 입력 데이터 전송
+resp3 = st.session_state.chat.send_message(auto_input)
+
+with st.chat_message("Architect", avatar="🛡️"):
+@@ -495,30 +467,27 @@ def update_active_module(response_text: str):
+except Exception as e:
+st.error(f"자동 실행 실패: {e}")
+
+    # 자동 분석 데이터 삭제
+del st.session_state["auto_analysis"]
+    
     st.markdown("---")
-    st.markdown("<h2>🧬 딥다이브(Deep Dive) 분석기</h2>", unsafe_allow_html=True)
-    
-    match_list = df['경기 (Match)'].tolist()
-    selected_match_name = st.selectbox("상세 분석을 원하는 경기를 선택하세요.", ["선택 안 함"] + match_list)
-    
-    if selected_match_name != "선택 안 함":
-        if st.button("AI 심층 분석 실행", type="primary", key="run_analysis"):
-            st.session_state.analyze_match = selected_match_name
-            # 분석 실행 시 기존 채팅 기록 초기화 (선택 사항)
-            # st.session_state.chat_history = [] 
-            st.rerun()
-
-    # [★수정★] 분석 렌더링 로직
-    if st.session_state.analyze_match:
-        match_data = df[df["경기 (Match)"] == st.session_state.analyze_match]
-        if not match_data.empty:
-            # 분석 실행 및 Context 저장 (Deep Dive는 st.write_stream 사용 가능)
-            stream_analysis(match_data.iloc[0])
-        st.session_state.analyze_match = None # 분석 완료 후 초기화
-        st.rerun() # 코멘트가 챗 히스토리에 추가되었으므로 렌더링을 위해 재실행
-
-    # ---------------------------------------
-    # 무료 섹션 (The Bait)
-    # ---------------------------------------
-    st.markdown("---")
-    st.markdown("<h2>📊 일반 AI 분석 데이터</h2>", unsafe_allow_html=True)
-    st.dataframe(free_picks, use_container_width=True, hide_index=True)
-
-    # ---------------------------------------
-    # [★신규★] AI 챗 어시스턴트 (The Assistant)
-    # ---------------------------------------
-    st.markdown("---")
-    st.markdown("<h2>✨ AI 분석 비서 (Q&A)</h2>", unsafe_allow_html=True)
-
-    # [★핵심 수정★ 챗 히스토리 렌더링: 안정화된 애니메이션 처리]
-    for i, message in enumerate(st.session_state.chat_history):
-        avatar = "✨" if message["role"] == "assistant" else "👤"
-        with st.chat_message(message["role"], avatar=avatar):
-            
-            is_last_message = (i == len(st.session_state.chat_history) - 1)
-            
-            # 마지막 AI 메시지이고 아직 애니메이션되지 않았다면 타이핑 효과 적용
-            if message["role"] == "assistant" and not message.get("animated") and is_last_message:
-                # [★버그 수정★] 안정적인 type_writer 함수 사용
-                placeholder = st.empty()
-                type_writer(message["content"], placeholder)
-                message["animated"] = True # 완료 처리
-            else:
-                # 이전 메시지 또는 유저 메시지는 즉시 출력
-                st.markdown(message["content"])
-
-
-    # [★기획 2: 가이드 칩 (Guide Chips)] 구현
-    st.markdown("<p style='font-size:12px; color:#666; margin-bottom: 5px;'>추천 질문:</p>", unsafe_allow_html=True)
-    
-    cols = st.columns(4)
-    
-    # 버튼 클릭 시 temp_chat_input에 저장하고 재실행
-    with cols[0]:
-        if st.button("💣 역배 추천", key="chip1"):
-            st.session_state.temp_chat_input = "오늘 역배 터질 경기 있어?"
-            st.rerun()
-    with cols[1]:
-        if st.button("💰 얼마 걸까?", key="chip2"):
-            # 컨텍스트가 있으면 활용, 없으면 일반 질문
-            if st.session_state.last_analysis:
-                 st.session_state.temp_chat_input = f"방금 본 경기({st.session_state.last_analysis['match_name'][:10]}...) 얼마 걸까?"
-            else:
-                st.session_state.temp_chat_input = "베팅 금액 추천해줘."
-            st.rerun()
-            
-    # 컨텍스트가 있을 때만 활성화되는 버튼
-    if st.session_state.last_analysis:
-        with cols[2]:
-            if st.button("🤔 이거 확실해?", key="chip3"):
-                st.session_state.temp_chat_input = "방금 분석한 경기 진짜 믿어도 돼? 한강 가기 싫다."
-                st.rerun()
-    with cols[3]:
-         if st.button("🏆 VIP 정보?", key="chip4"):
-            st.session_state.temp_chat_input = "VIP 정보는 뭐가 달라?"
-            st.rerun()
-
-    # [★핵심 수정★ 챗 입력 처리: 로직과 렌더링 분리]
-    user_query = st.chat_input("분석 결과에 대해 질문하세요. (예: 맨시티 경기 어때?)")
-    
-    # temp_chat_input이 우선권을 가짐
-    if st.session_state.temp_chat_input:
-        user_query = st.session_state.temp_chat_input
-        st.session_state.temp_chat_input = None # 사용 후 초기화
-
-    if user_query:
-        # 1. 유저 메시지 저장 (애니메이션 필요 없음)
-        st.session_state.chat_history.append({"role": "user", "content": user_query, "animated": True})
-        
-        # 2. AI 응답 처리 (로직만 실행하고 응답 저장)
-        handle_chat_query(user_query, df)
-        
-        # 3. [★중요★] 스크립트 재실행 (렌더링 루프가 애니메이션을 처리하도록 함)
-        st.rerun()
-
+    st.rerun()
 
 # ---------------------------------------
-# 실행 제어 (Gatekeeper)
+# 10. 스트리밍 응답 함수
 # ---------------------------------------
+def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: str = "Architect 시스템 연산 중..."):
+def stream_and_store_response(chat_session, prompt_to_send: str):
+    """스트리밍 응답 처리"""
+full_response = ""
+    start_time = time.time()
 
-if st.session_state.agreed:
-    main_app()
-else:
-    legal_disclaimer_gate()
+with st.chat_message("Architect", avatar="🛡️"):
+placeholder = st.empty()
+try:
+            with st.spinner(spinner_text):
+                stream = chat_session.send_message(prompt_to_send, stream=True)
+                for chunk in stream:
+                    if not getattr(chunk, "parts", None):
+                        full_response = "[시스템 경고: 응답이 안전 필터에 의해 차단되었습니다.]"
+                        placeholder.error(full_response)
+                        break
+                    full_response += chunk.text
+                    placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+            stream = chat_session.send_message(prompt_to_send, stream=True)
+            for chunk in stream:
+                if not getattr(chunk, "parts", None):
+                    full_response = "[시스템 경고: 응답이 차단되었습니다.]"
+                    placeholder.error(full_response)
+                    break
+                full_response += chunk.text
+                placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+placeholder.markdown(full_response, unsafe_allow_html=True)
+except Exception as e:
+full_response = f"[치명적 오류: {e}]"
+@@ -527,22 +496,19 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+st.session_state.messages.append({"role": "Architect", "content": full_response})
+update_active_module(full_response)
+
+    end_time = time.time()
+    print(f"[LLM] 응답 시간: {end_time - start_time:.2f}s")
+return full_response
+
+# ---------------------------------------
+# 11. 메인 입력 루프
+# ---------------------------------------
+if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
+
+    # ★★★ 1. 초기화 키워드 감지 (최우선) ★★★
+if _is_reset_keyword(prompt):
+st.session_state.active_module = "Phase 0"
+st.session_state.messages.append({"role": "user", "content": prompt})
+
+with st.chat_message("Client", avatar="👤"):
+            st.markdown(prompt, unsafe_allow_html=True)
+            st.markdown(prompt)
+
+reset_response = "시스템을 초기화합니다. Phase 0로 돌아갑니다."
+
+@@ -551,7 +517,6 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+
+st.session_state.messages.append({"role": "Architect", "content": reset_response})
+
+        # Phase 0 메뉴 다시 불러오기
+try:
+init_prompt = "시스템 가동. Phase 0를 시작하라."
+resp = st.session_state.chat.send_message(init_prompt)
+@@ -562,30 +527,35 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+st.session_state.messages.append({"role": "Architect", "content": init_text})
+st.rerun()
+
+    # ★★★ 2. 9번 입력 감지 ★★★
+if prompt.strip() == "9":
+st.session_state.active_module = "Auto-Analysis Mode"
+st.session_state.messages.append({"role": "user", "content": prompt})
+
+with st.chat_message("Client", avatar="👤"):
+            st.markdown(prompt, unsafe_allow_html=True)
+            st.markdown(prompt)
+
+        response_text = stream_and_store_response(st.session_state.chat, prompt)
+        stream_and_store_response(st.session_state.chat, prompt)
+st.rerun()
+
+st.session_state.messages.append({"role": "user", "content": prompt})
+with st.chat_message("Client", avatar="👤"):
+        st.markdown(prompt, unsafe_allow_html=True)
+        st.markdown(prompt)
+
+is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
+
+    # ★★★ RAG 초기화 (사전 임베딩 사용) - 경고 제거 ★★★
+if (not st.session_state.statutes) and (not st.session_state.precedents):
+        s_data, s_emb, p_data, p_emb = load_precomputed_embeddings()
+        st.session_state.statutes = s_data
+        st.session_state.s_embeddings = s_emb
+        st.session_state.precedents = p_data
+        st.session_state.p_embeddings = p_emb
+        try:
+            s_data, s_emb, p_data, p_emb = load_precomputed_embeddings()
+            st.session_state.statutes = s_data
+            st.session_state.s_embeddings = s_emb
+            st.session_state.precedents = p_data
+            st.session_state.p_embeddings = p_emb
+        except Exception as e:
+            print(f"[RAG 초기화 실패] {e}")
+            st.session_state.statutes = []
+            st.session_state.s_embeddings = []
+            st.session_state.precedents = []
+            st.session_state.p_embeddings = []
+
+rag_context = ""
+similar_precedents = []
+@@ -640,13 +610,13 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+
+label = f"판례 [{title}]"
+if court and case_no:
+                label += f" — {court} {case_no}"
+                label += f" - {court} {case_no}"
+
+summary = case_data.get("rag_index", "요약 내용 없음")
+if len(summary) > 200:
+summary = summary[:197] + "..."
+
+            link_md = f"[🔗 원문 링크 보기]({url})" if url else ""
+            link_md = f"[원문 링크]({url})" if url else ""
+
+md = f"* **{label}**\n  - 선고: {date} | 유사도: {sim_pct}% | {link_md}\n  - 내용 요약: {summary}"
+st.markdown(md)
+@@ -656,4 +626,4 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+st.text(full_text)
+
+elif _is_final_report(clean_response) and not similar_precedents:
+        st.info("ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
+        st.info("분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
