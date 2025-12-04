@@ -233,22 +233,32 @@ def stream_and_store_response(chat_session, prompt_to_send: str,
 # 9. 메인 입력 루프 + Dual RAG
 # ---------------------------------------
 if prompt := st.chat_input("사건 정보 또는 도메인 번호를 입력하세요..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("Client", avatar="👤"):
-        st.markdown(prompt, unsafe_allow_html=True)
-
     # 도메인 번호 입력 처리 (먼저 확인)
     prompt_stripped = prompt.strip()
     if prompt_stripped in domain_options:
         selected = domain_options[prompt_stripped]
         st.session_state.selected_domain = selected
         
-        # 메시지 추가
+        # 사용자 입력 기록
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # 도메인 변경 안내 메시지
+        domain_change_msg = f"✅ 도메인이 **{selected}**(으)로 설정되었습니다.\n\n이제 해당 도메인의 사건 정보를 입력해주세요."
         st.session_state.messages.append({
             "role": "Architect", 
-            "content": f"✅ 도메인이 **{selected}**(으)로 설정되었습니다."
+            "content": domain_change_msg
         })
+        
+        # 모듈 업데이트
+        st.session_state.active_module = f"Phase 0 — {selected}"
+        
+        # 화면 갱신
         st.rerun()
+    
+    # 일반 메시지 처리
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("Client", avatar="👤"):
+        st.markdown(prompt, unsafe_allow_html=True)
 
     # Phase 상태 확인
     is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
