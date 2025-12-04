@@ -1,537 +1,310 @@
-# 베리타스 엔진 8.1 — Auto-Analysis Mode + Dual RAG (사전 임베딩)
-# 베리타스 엔진 8.1 - 완전 수정판
-
 import streamlit as st
 import google.generativeai as genai
-@@ -73,6 +73,7 @@
+import os
+import re
+import json
+import numpy as np
+import PyPDF2
+import time
+
+# ---------------------------------------
+# 0. 시스템 설정
+# ---------------------------------------
+st.set_page_config(
+    page_title="Veritas Engine 8.1 | Legal Architect",
+    page_icon="⚖️",
+    layout="centered"
+)
+
+# API 키 설정
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    # 로컬 테스트용 (secrets.toml 없을 경우)
+    st.warning("Google API Key가 설정되지 않았습니다.")
+
+SYSTEM_INSTRUCTION = """
+당신은 대한민국 최고의 법률 전문가이자 전략가인 'Veritas Architect'입니다.
+사용자의 질문이나 사건 기록을 분석하여 법리적 근거(조문, 판례)에 기반한 명확한 전략을 제시하십시오.
+"""
+
 EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
+# ---------------------------------------
+# 1. 임베딩 및 RAG 검색 함수
+# ---------------------------------------
 def embed_text(text: str, task_type: str = "retrieval_document"):
     """텍스트 임베딩 생성"""
-clean_text = text.replace("\n", " ").strip()
-if not clean_text:
-return None
-@@ -87,6 +88,33 @@ def embed_text(text: str, task_type: str = "retrieval_document"):
-print(f"[Embedding error] {e}")
-return None
+    clean_text = text.replace("\n", " ").strip()
+    if not clean_text: return None
+    try:
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            content=clean_text,
+            task_type=task_type
+        )
+        return result['embedding']
+    except Exception as e:
+        print(f"[Embedding error] {e}")
+        return None
 
 def find_similar_items(query_text, items, embeddings, top_k=3, threshold=0.5):
     """유사도 검색"""
-    if not items or not embeddings:
-        return []
-
+    if not items or not embeddings: return []
     try:
         q_emb = embed_text(query_text, task_type="retrieval_query")
-        if q_emb is None:
-            return []
-
+        if q_emb is None: return []
         sims = np.dot(np.array(embeddings), np.array(q_emb))
         idxs = np.argsort(sims)[::-1][:top_k]
-
         results = []
         for i in idxs:
             score = float(sims[i])
-            if score < threshold:
-                continue
+            if score < threshold: continue
             item = items[i].copy()
             item["similarity"] = score
             results.append(item)
-
         return results
     except Exception as e:
         print(f"[RAG Error] {e}")
         return []
 
 # ---------------------------------------
-# 2-1. 사전 계산된 임베딩 로드
+# 2. 데이터 로드 함수 (파일 기반 RAG)
 # ---------------------------------------
-@@ -98,49 +126,54 @@ def load_precomputed_embeddings():
-precedent_items = []
-precedent_embeddings = []
+@st.cache_resource
+def load_precomputed_embeddings():
+    statute_items = []
+    statute_embeddings = []
+    precedent_items = []
+    precedent_embeddings = []
 
-    # 법령 로드
-    if os.path.exists("statutes_data.txt"):
-        with open("statutes_data.txt", "r", encoding="utf-8") as f:
-            content = f.read()
-        
-        parts = re.split(r"\s*---END OF STATUTE---\s*", content)
-        for p in parts:
-            p = p.strip()
-            if not p:
-                continue
-            emb = embed_text(p)
-            if emb:
-                statute_items.append({"rag_index": p, "raw_text": p})
-                statute_embeddings.append(emb)
-        
-        print(f"[RAG] ✅ 법령 로드: {len(statute_items)}개")
-    
-    # 판례 로드
-    if os.path.exists("precedents_data.jsonl"):
-        with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                    txt = obj.get("rag_index", "")
-                    if txt:
-                        emb = embed_text(txt)
-                        if emb:
-                            precedent_items.append(obj)
-                            precedent_embeddings.append(emb)
-                except:
-    try:
-        # 법령 로드
-        if os.path.exists("statutes_data.txt"):
-            with open("statutes_data.txt", "r", encoding="utf-8") as f:
-                content = f.read()
+    # 로딩 상태 시각화
+    with st.status("📚 Veritas 데이터베이스 연결 중...", expanded=True) as status:
+        try:
+            # 1. 법령 로드
+            if os.path.exists("statutes_data.txt"):
+                st.write("📜 법령 데이터 스캔...")
+                with open("statutes_data.txt", "r", encoding="utf-8") as f:
+                    content = f.read()
+                parts = re.split(r"\s*---END OF STATUTE---\s*", content)
+                for i, p in enumerate(parts):
+                    if i >= 10: break # 데모용 제한
+                    p = p.strip()
+                    if not p: continue
+                    emb = embed_text(p)
+                    if emb:
+                        statute_items.append({"rag_index": p, "raw_text": p})
+                        statute_embeddings.append(emb)
+                        time.sleep(0.1)
+                st.write(f"✅ 법령 {len(statute_items)}건 로드")
             
-            parts = re.split(r"\s*---END OF STATUTE---\s*", content)
-            for p in parts:
-                p = p.strip()
-                if not p:
-continue
-                emb = embed_text(p)
-                if emb:
-                    statute_items.append({"rag_index": p, "raw_text": p})
-                    statute_embeddings.append(emb)
+            # 2. 판례 로드
+            if os.path.exists("precedents_data.jsonl"):
+                st.write("⚖️ 판례 데이터 스캔...")
+                with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
+                    count = 0
+                    for line in f:
+                        if count >= 10: break # 데모용 제한
+                        line = line.strip()
+                        if not line: continue
+                        try:
+                            obj = json.loads(line)
+                            txt = obj.get("rag_index", "")
+                            if txt:
+                                emb = embed_text(txt)
+                                if emb:
+                                    precedent_items.append(obj)
+                                    precedent_embeddings.append(emb)
+                                    count += 1
+                                    time.sleep(0.1)
+                        except: continue
+                st.write(f"✅ 판례 {len(precedent_items)}건 로드")
             
-            print(f"[RAG] 법령 로드: {len(statute_items)}개")
+            status.update(label="시스템 준비 완료", state="complete", expanded=False)
+        except Exception as e:
+            print(f"[RAG 로딩 에러] {e}")
 
-        print(f"[RAG] ✅ 판례 로드: {len(precedent_items)}개")
-        # 판례 로드
-        if os.path.exists("precedents_data.jsonl"):
-            with open("precedents_data.jsonl", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        txt = obj.get("rag_index", "")
-                        if txt:
-                            emb = embed_text(txt)
-                            if emb:
-                                precedent_items.append(obj)
-                                precedent_embeddings.append(emb)
-                    except:
-                        continue
-            
-            print(f"[RAG] 판례 로드: {len(precedent_items)}개")
-    
-    except Exception as e:
-        print(f"[RAG 로딩 에러] {e}")
-
-return statute_items, statute_embeddings, precedent_items, precedent_embeddings
+    return statute_items, statute_embeddings, precedent_items, precedent_embeddings
 
 # ---------------------------------------
 # 3. PDF 처리 함수
 # ---------------------------------------
 def extract_text_from_pdf(uploaded_file):
-    """PDF에서 텍스트 추출"""
-try:
-pdf_reader = PyPDF2.PdfReader(uploaded_file)
-text = ""
-@@ -158,6 +191,7 @@ def extract_text_from_pdf(uploaded_file):
-return None
+    try:
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        st.error(f"PDF 처리 오류: {e}")
+        return None
 
 def analyze_case_file(pdf_text: str, model):
-    """PDF 내용 자동 분석"""
-analysis_prompt = f"""
-다음은 사건기록 PDF에서 추출한 내용입니다. 
+    analysis_prompt = f"""
+    다음 사건 기록을 정밀 분석하여 JSON 형식으로 출력하십시오.
+    {{
+        "domain": "형사/민사/가사",
+        "subdomain": "세부 죄명 또는 쟁점",
+        "key_facts": ["사실1", "사실2", "사실3", "사실4", "사실5"],
+        "evidence": ["증거1", "증거2"],
+        "our_claim": "우리 측 주장",
+        "their_claim": "상대방 주장"
+    }}
+    [내용]
+    {pdf_text[:10000]}
+    """
+    try:
+        response = model.generate_content(analysis_prompt, generation_config={"response_mime_type": "application/json"})
+        return json.loads(response.text)
+    except:
+        return None
 
-@@ -200,27 +234,29 @@ def analyze_case_file(pdf_text: str, model):
-# 4. 각종 유틸 함수
 # ---------------------------------------
-def _is_menu_input(s: str) -> bool:
-    """메뉴 번호 입력 감지"""
-return bool(re.fullmatch(r"^\s*\d{1,2}(?:-\d{1,2})?\s*$", s))
-
+# 4. 유틸 및 스트리밍 함수
+# ---------------------------------------
 def _is_reset_keyword(s: str) -> bool:
-    """처음으로/메인/초기화 키워드 감지"""
-    """초기화 키워드 감지"""
-keywords = ["처음", "메인", "초기화", "reset", "돌아가", "처음으로"]
-return any(kw in s.lower() for kw in keywords)
-
-def _is_final_report(txt: str) -> bool:
-    """최종 보고서 생성 여부 확인"""
-return "전략 브리핑 보고서" in txt
-
-def _query_title(prompt_text: str) -> str:
-    """쿼리 제목 생성"""
-return prompt_text[:67] + "..." if len(prompt_text) > 70 else prompt_text
+    return any(kw in s.lower() for kw in ["처음", "메인", "초기화", "reset"])
 
 def update_active_module(response_text: str):
-    # Auto-Analysis Mode 감지 (엄격한 조건)
-    """활성 모듈 업데이트"""
-if ("9." in response_text and "사건기록 자동 분석 모드" in response_text) or \
-("Auto-Analysis Mode를 활성화합니다" in response_text):
-st.session_state.active_module = "Auto-Analysis Mode"
-return
-
-    # 일반 모듈 활성화
-m = re.search(r"'(.+?)' 모듈을 (?:최종 )?활성화합니다", response_text)
-if m:
-st.session_state.active_module = m.group(1).strip()
-@@ -245,7 +281,7 @@ def update_active_module(response_text: str):
-if "model" not in st.session_state:
-try:
-st.session_state.model = genai.GenerativeModel(
-            "models/gemini-2.5-flash",
-            "models/gemini-2.0-flash-exp",
-system_instruction=SYSTEM_INSTRUCTION,
-)
-st.session_state.chat = st.session_state.model.start_chat(history=[])
-@@ -280,127 +316,77 @@ def update_active_module(response_text: str):
-with st.chat_message(role_name, avatar=avatar):
-st.markdown(m["content"], unsafe_allow_html=True)
-
-if st.session_state.messages:
-    st.markdown(
-        '<script>setTimeout(()=>{const el=window.parent.document.querySelector("section.main");if(el)el.scrollTop=el.scrollHeight},100)</script>',
-        unsafe_allow_html=True
-    )
-
-# ---------------------------------------
-# 8. PDF 업로드 UI (★★★ 핵심 수정 ★★★)
-# 8. PDF 업로드 UI
-# ---------------------------------------
-# 조건: active_module이 정확히 "Auto-Analysis Mode"이고, 9번을 입력한 직후일 때만 표시
-if st.session_state.get("active_module") == "Auto-Analysis Mode":
-    # 마지막 사용자 메시지가 "9"인지 확인
-last_user_msg = None
-for m in reversed(st.session_state.messages):
-if m["role"] == "user":
-last_user_msg = m["content"].strip()
-break
-
-    # 9번 입력 직후에만 PDF UI 표시
-if last_user_msg == "9":
-st.markdown("---")
-
-st.info("""
-       **📄 사건기록 자동 분석 모드란?**
-       
-       PDF 파일(판결문, 고소장, 답변서 등)을 업로드하면 AI가 자동으로:
-        - ✅ 사건 도메인 분류 (형사/민사/가사 등)
-        - ✅ 핵심 사실관계 5가지 추출
-        - ✅ 확보된 증거 목록 정리
-        - ✅ 양측 주장 요약
-        - 사건 도메인 분류 (형사/민사/가사 등)
-        - 핵심 사실관계 5가지 추출
-        - 확보된 증거 목록 정리
-        - 양측 주장 요약
-       
-       **처리 시간:** 약 1-3분 | **최대 크기:** 50MB | **형식:** 텍스트 기반 PDF만 가능
-       """)
-
-st.subheader("📎 파일 업로드")
-
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            uploaded_file = st.file_uploader(
-                "사건기록 PDF를 선택하세요",
-                type=["pdf"],
-                help="판결문, 고소장, 답변서, 사건기록 등",
-                label_visibility="collapsed"
-            )
-        
-        with col2:
-            if uploaded_file:
-                st.metric("상태", "✅ 준비 완료", delta="업로드 완료")
-            else:
-                st.metric("상태", "⏳ 대기 중", delta="파일 선택")
-        uploaded_file = st.file_uploader(
-            "사건기록 PDF를 선택하세요",
-            type=["pdf"],
-            help="판결문, 고소장, 답변서, 사건기록 등",
-        )
-
-if uploaded_file is not None:
-file_size = uploaded_file.size / (1024 * 1024)
-            
-            with st.container():
-                st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
-            st.success(f"**파일명:** {uploaded_file.name}  |  **크기:** {file_size:.1f}MB")
-
-if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
-                with st.spinner("📄 PDF 텍스트 추출 중... (30초~2분 소요)"):
-                with st.spinner("📄 PDF 텍스트 추출 중..."):
-pdf_text = extract_text_from_pdf(uploaded_file)
-
-if not pdf_text:
-                        st.error("❌ PDF에서 텍스트를 추출할 수 없습니다.")
-                        st.error("PDF에서 텍스트를 추출할 수 없습니다.")
-st.stop()
-
-                    st.success(f"✓ 텍스트 추출 완료 ({len(pdf_text):,} 글자)")
-                    st.success(f"텍스트 추출 완료 ({len(pdf_text):,} 글자)")
-
-                with st.spinner("🧠 AI 분석 중... (1-2분 소요)"):
-                with st.spinner("🧠 AI 분석 중..."):
-analysis = analyze_case_file(pdf_text, st.session_state.model)
-
-if not analysis:
-                        st.error("❌ 분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
-                        st.error("분석 실패. PDF 형식을 확인하고 다시 시도하세요.")
-st.stop()
-
-                st.success("✅ 분석 완료!")
-                st.success("분석 완료!")
-
-with st.expander("📊 분석 결과 상세 보기", expanded=True):
-                    col_a, col_b = st.columns(2)
-                    
-                    with col_a:
-                        st.metric("🏛️ 도메인", analysis["domain"])
-                        st.metric("📌 세부 분야", analysis.get("subdomain", "미분류"))
-                    st.markdown(f"**도메인:** {analysis['domain']}")
-                    st.markdown(f"**세부 분야:** {analysis.get('subdomain', '미분류')}")
-
-                    with col_b:
-                        st.metric("📋 핵심 사실", f"{len(analysis.get('key_facts', []))}개")
-                        st.metric("📂 증거 항목", f"{len(analysis.get('evidence', []))}개")
-                    
-                    st.markdown("---")
-                    st.markdown("**📌 핵심 사실관계**")
-                    for i, fact in enumerate(analysis.get("key_facts", []), 1):
-                    st.markdown("**핵심 사실관계:**")
-                    for i, fact in enumerate(analysis.get('key_facts', []), 1):
-st.markdown(f"{i}. {fact}")
-
-                    st.markdown("**📂 확보된 증거**")
-                    for i, ev in enumerate(analysis.get("evidence", []), 1):
-                    st.markdown("**확보된 증거:**")
-                    for i, ev in enumerate(analysis.get('evidence', []), 1):
-st.markdown(f"{i}. {ev}")
-
-                    st.markdown("**⚖️ 양측 주장**")
-st.info(f"**우리 측:** {analysis.get('our_claim', '(정보 없음)')}")
-st.warning(f"**상대 측:** {analysis.get('their_claim', '(정보 없음)')}")
-
-                domain_map = {
-                    "형사": "2",
-                    "민사": "8",
-                    "가사": "1",
-                    "이혼": "1",
-                    "파산": "3",
-                    "행정": "7",
-                    "세무": "6",
-                    "IP": "4",
-                    "의료": "5",
-                }
-                
-                domain_num = domain_map.get(analysis["domain"], "8")
-                
-                st.info(
-                    f"💡 **다음 단계**\n\n"
-                    f"이 사건은 **{analysis['domain']}** 사건으로 분류되었습니다.\n\n"
-                    f"계속 진행하려면 아래 채팅창에 **{domain_num}**을 입력하세요."
-                )
-                
-st.session_state["auto_analysis"] = analysis
-st.session_state["pdf_text"] = pdf_text
-
-@@ -412,12 +398,8 @@ def update_active_module(response_text: str):
-if "auto_analysis" in st.session_state and st.session_state.get("active_module") != "Auto-Analysis Mode":
-auto_data = st.session_state["auto_analysis"]
-
-    st.success(
-        "💡 **자동 분석 결과가 감지되었습니다!**\n\n"
-        "AI가 자동으로 해당 모듈을 실행하여 완전한 보고서를 생성합니다."
-    )
-    st.success("AI가 자동으로 해당 모듈을 실행하여 완전한 보고서를 생성합니다.")
-
-    # 자동 모듈 실행
-domain_map = {
-"형사": "2",
-"민사": "8",
-@@ -432,7 +414,6 @@ def update_active_module(response_text: str):
-
-domain_num = domain_map.get(auto_data["domain"], "8")
-
-    # 자동 입력 메시지 생성
-auto_input = f"""
-[자동 추출된 사건 정보]
-
-@@ -450,25 +431,17 @@ def update_active_module(response_text: str):
-상대방 주장:
-{auto_data.get('their_claim', '(정보 없음)')}
-
-위 정보를 바탕으로 {domain_num}번 모듈을 실행하여 완전한 전략 보고서를 생성하십시오.
-위 정보를 바탕으로 완전한 전략 보고서를 생성하십시오.
-"""
-
-    # 메시지 추가
-st.session_state.messages.append({"role": "user", "content": f"자동 분석 완료. {domain_num}번 모듈 실행"})
-
-    with st.chat_message("Client", avatar="👤"):
-        st.markdown(f"**자동 분석 결과를 바탕으로 {domain_num}번 모듈을 실행합니다.**")
+    if ("9." in response_text and "사건기록" in response_text) or \
+       ("Auto-Analysis Mode" in response_text):
+        st.session_state.active_module = "Auto-Analysis Mode"
     
-    # AI에게 전송
-    with st.spinner("완전한 전략 보고서 생성 중... (1-2분 소요)"):
-    with st.spinner("완전한 전략 보고서 생성 중..."):
-try:
-            # 1단계: 도메인 번호 입력
-resp1 = st.session_state.chat.send_message(domain_num)
-st.session_state.messages.append({"role": "Architect", "content": resp1.text})
+    m = re.search(r"'(.+?)' 모듈을 (?:최종 )?활성화합니다", response_text)
+    if m:
+        st.session_state.active_module = m.group(1).strip()
 
-            # 형사인 경우 2-1 자동 입력
-if domain_num == "2":
-                # 세부 분야 매핑
-subdomain_map = {
-"마약": "2-1",
-"성범죄": "2-2",
-@@ -484,7 +457,6 @@ def update_active_module(response_text: str):
-resp2 = st.session_state.chat.send_message(subdomain_num)
-st.session_state.messages.append({"role": "Architect", "content": resp2.text})
-
-            # 2단계: 자동 입력 데이터 전송
-resp3 = st.session_state.chat.send_message(auto_input)
-
-with st.chat_message("Architect", avatar="🛡️"):
-@@ -495,30 +467,27 @@ def update_active_module(response_text: str):
-except Exception as e:
-st.error(f"자동 실행 실패: {e}")
-
-    # 자동 분석 데이터 삭제
-del st.session_state["auto_analysis"]
-    
-    st.markdown("---")
-    st.rerun()
-
-# ---------------------------------------
-# 10. 스트리밍 응답 함수
-# ---------------------------------------
-def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: str = "Architect 시스템 연산 중..."):
 def stream_and_store_response(chat_session, prompt_to_send: str):
-    """스트리밍 응답 처리"""
-full_response = ""
-    start_time = time.time()
-
-with st.chat_message("Architect", avatar="🛡️"):
-placeholder = st.empty()
-try:
-            with st.spinner(spinner_text):
-                stream = chat_session.send_message(prompt_to_send, stream=True)
-                for chunk in stream:
-                    if not getattr(chunk, "parts", None):
-                        full_response = "[시스템 경고: 응답이 안전 필터에 의해 차단되었습니다.]"
-                        placeholder.error(full_response)
-                        break
-                    full_response += chunk.text
-                    placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+    full_response = ""
+    with st.chat_message("Architect", avatar="🛡️"):
+        placeholder = st.empty()
+        try:
             stream = chat_session.send_message(prompt_to_send, stream=True)
             for chunk in stream:
-                if not getattr(chunk, "parts", None):
-                    full_response = "[시스템 경고: 응답이 차단되었습니다.]"
-                    placeholder.error(full_response)
-                    break
-                full_response += chunk.text
-                placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
-placeholder.markdown(full_response, unsafe_allow_html=True)
-except Exception as e:
-full_response = f"[치명적 오류: {e}]"
-@@ -527,22 +496,19 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
-st.session_state.messages.append({"role": "Architect", "content": full_response})
-update_active_module(full_response)
-
-    end_time = time.time()
-    print(f"[LLM] 응답 시간: {end_time - start_time:.2f}s")
-return full_response
+                if getattr(chunk, "text", None):
+                    full_response += chunk.text
+                    placeholder.markdown(full_response + "▌")
+            placeholder.markdown(full_response)
+        except Exception as e:
+            placeholder.error(f"연산 오류: {e}")
+    
+    st.session_state.messages.append({"role": "Architect", "content": full_response})
+    update_active_module(full_response)
+    return full_response
 
 # ---------------------------------------
-# 11. 메인 입력 루프
+# 5. 메인 로직
 # ---------------------------------------
-if prompt := st.chat_input("시뮬레이션 변수를 입력하십시오"):
 
-    # ★★★ 1. 초기화 키워드 감지 (최우선) ★★★
-if _is_reset_keyword(prompt):
-st.session_state.active_module = "Phase 0"
-st.session_state.messages.append({"role": "user", "content": prompt})
-
-with st.chat_message("Client", avatar="👤"):
-            st.markdown(prompt, unsafe_allow_html=True)
-            st.markdown(prompt)
-
-reset_response = "시스템을 초기화합니다. Phase 0로 돌아갑니다."
-
-@@ -551,7 +517,6 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
-
-st.session_state.messages.append({"role": "Architect", "content": reset_response})
-
-        # Phase 0 메뉴 다시 불러오기
-try:
-init_prompt = "시스템 가동. Phase 0를 시작하라."
-resp = st.session_state.chat.send_message(init_prompt)
-@@ -562,30 +527,35 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
-st.session_state.messages.append({"role": "Architect", "content": init_text})
-st.rerun()
-
-    # ★★★ 2. 9번 입력 감지 ★★★
-if prompt.strip() == "9":
-st.session_state.active_module = "Auto-Analysis Mode"
-st.session_state.messages.append({"role": "user", "content": prompt})
-
-with st.chat_message("Client", avatar="👤"):
-            st.markdown(prompt, unsafe_allow_html=True)
-            st.markdown(prompt)
-
-        response_text = stream_and_store_response(st.session_state.chat, prompt)
-        stream_and_store_response(st.session_state.chat, prompt)
-st.rerun()
-
-st.session_state.messages.append({"role": "user", "content": prompt})
-with st.chat_message("Client", avatar="👤"):
-        st.markdown(prompt, unsafe_allow_html=True)
-        st.markdown(prompt)
-
-is_data_ingestion_phase = "Phase 2" in (st.session_state.active_module or "")
-
-    # ★★★ RAG 초기화 (사전 임베딩 사용) - 경고 제거 ★★★
-if (not st.session_state.statutes) and (not st.session_state.precedents):
+# 모델 초기화
+if "model" not in st.session_state:
+    try:
+        # Gemini 1.5 Flash 사용
+        st.session_state.model = genai.GenerativeModel("models/gemini-1.5-flash", system_instruction=SYSTEM_INSTRUCTION)
+        st.session_state.chat = st.session_state.model.start_chat(history=[])
+        st.session_state.messages = []
+        
+        # [핵심 수정] 초기 메시지 강제 주입 (화면에 글 안 나오는 문제 해결)
+        init_msg = """
+        **Veritas Engine 8.1 가동.**
+        
+        법률 전략 수립을 위한 Architect가 준비되었습니다.
+        원하시는 작업이나 사건 개요를 입력하십시오.
+        
+        (PDF 분석을 원하시면 '9'를 입력하십시오)
+        """
+        st.session_state.messages.append({"role": "Architect", "content": init_msg})
+        st.session_state.active_module = "Phase 0"
+        
+        # 데이터 로드
         s_data, s_emb, p_data, p_emb = load_precomputed_embeddings()
         st.session_state.statutes = s_data
         st.session_state.s_embeddings = s_emb
         st.session_state.precedents = p_data
         st.session_state.p_embeddings = p_emb
-        try:
-            s_data, s_emb, p_data, p_emb = load_precomputed_embeddings()
-            st.session_state.statutes = s_data
-            st.session_state.s_embeddings = s_emb
-            st.session_state.precedents = p_data
-            st.session_state.p_embeddings = p_emb
-        except Exception as e:
-            print(f"[RAG 초기화 실패] {e}")
-            st.session_state.statutes = []
-            st.session_state.s_embeddings = []
-            st.session_state.precedents = []
-            st.session_state.p_embeddings = []
+        
+    except Exception as e:
+        st.error(f"초기화 실패: {e}")
 
-rag_context = ""
-similar_precedents = []
-@@ -640,13 +610,13 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
+# 대화 내역 출력
+for m in st.session_state.messages:
+    avatar = "🛡️" if m["role"] == "Architect" else "👤"
+    with st.chat_message(m["role"], avatar=avatar):
+        st.markdown(m["content"])
 
-label = f"판례 [{title}]"
-if court and case_no:
-                label += f" — {court} {case_no}"
-                label += f" - {court} {case_no}"
+# 화면 스크롤 하단 고정
+st.markdown('<script>window.scrollTo(0, document.body.scrollHeight);</script>', unsafe_allow_html=True)
 
-summary = case_data.get("rag_index", "요약 내용 없음")
-if len(summary) > 200:
-summary = summary[:197] + "..."
+# PDF 모드 UI
+if st.session_state.get("active_module") == "Auto-Analysis Mode":
+    # 마지막 대화가 '9'일 때만 표시
+    if st.session_state.messages and st.session_state.messages[-1]["content"] == "9":
+        st.markdown("---")
+        st.info("📄 **사건기록 PDF 자동 분석 모드**")
+        uploaded_file = st.file_uploader("판결문/고소장 PDF 업로드", type=["pdf"])
+        
+        if uploaded_file:
+            if st.button("🚀 자동 분석 시작", type="primary", use_container_width=True):
+                with st.spinner("텍스트 추출 및 AI 분석 중..."):
+                    pdf_text = extract_text_from_pdf(uploaded_file)
+                    if pdf_text:
+                        analysis = analyze_case_file(pdf_text, st.session_state.model)
+                        if analysis:
+                            st.success("분석 완료")
+                            with st.expander("📊 분석 결과 보기", expanded=True):
+                                st.markdown(f"**도메인:** {analysis.get('domain')}")
+                                st.markdown("**핵심 사실:**")
+                                for f in analysis.get('key_facts', []):
+                                    st.markdown(f"- {f}")
+                            
+                            # 자동 진행
+                            st.session_state["auto_analysis"] = analysis
+                            
+                            # 다음 단계 자동 트리거
+                            domain_map = {"형사": "2", "민사": "8", "이혼": "1"}
+                            domain_num = domain_map.get(analysis.get("domain", ""), "8")
+                            
+                            auto_prompt = f"""
+                            [자동 분석 데이터]
+                            도메인: {analysis.get('domain')}
+                            사실관계: {analysis.get('key_facts')}
+                            양측주장: {analysis.get('our_claim')} vs {analysis.get('their_claim')}
+                            
+                            위 데이터를 바탕으로 {domain_num}번 모듈을 실행하여 승소 전략을 제시하라.
+                            """
+                            
+                            st.session_state.messages.append({"role": "user", "content": "PDF 분석 완료. 자동 전략 수립 시작."})
+                            stream_and_store_response(st.session_state.chat, auto_prompt)
+                            st.rerun()
 
-            link_md = f"[🔗 원문 링크 보기]({url})" if url else ""
-            link_md = f"[원문 링크]({url})" if url else ""
+# 채팅 입력
+if prompt := st.chat_input("명령 또는 사건 내용을 입력하십시오..."):
+    # 초기화
+    if _is_reset_keyword(prompt):
+        st.session_state.chat = st.session_state.model.start_chat(history=[])
+        st.session_state.messages = [{"role": "Architect", "content": "시스템이 리셋되었습니다. 처음부터 다시 시작합니다."}]
+        st.rerun()
 
-md = f"* **{label}**\n  - 선고: {date} | 유사도: {sim_pct}% | {link_md}\n  - 내용 요약: {summary}"
-st.markdown(md)
-@@ -656,4 +626,4 @@ def stream_and_store_response(chat_session, prompt_to_send: str, spinner_text: s
-st.text(full_text)
-
-elif _is_final_report(clean_response) and not similar_precedents:
-        st.info("ℹ️ 분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
-        st.info("분석과 관련된 유사 판례가 데이터베이스에서 검색되지 않았습니다. (임계값 0.55)")
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("Client", avatar="👤"):
+        st.markdown(prompt)
+    
+    if prompt.strip() == "9":
+        st.session_state.active_module = "Auto-Analysis Mode"
+        stream_and_store_response(st.session_state.chat, "사건기록 자동 분석 모드에 대해 설명하라.")
+        st.rerun()
+    else:
+        # RAG 검색 (법률/판례가 있다면 컨텍스트 추가)
+        rag_context = ""
+        if st.session_state.statutes:
+            sim_statutes = find_similar_items(prompt, st.session_state.statutes, st.session_state.s_embeddings)
+            if sim_statutes:
+                rag_context += "\n[관련 법령]\n" + "\n".join([s['raw_text'] for s in sim_statutes])
+        
+        if rag_context:
+            full_prompt = f"사용자 질문: {prompt}\n\n{rag_context}\n\n위 법적 근거를 참고하여 답변하라."
+        else:
+            full_prompt = prompt
+            
+        stream_and_store_response(st.session_state.chat, full_prompt)
