@@ -205,18 +205,36 @@ def stream_and_store_response(chat_session, prompt_to_send: str,
     with st.chat_message("Architect", avatar="🛡️"):
         placeholder = st.empty()
         try:
-            with st.spinner(spinner_text):
-                stream = chat_session.send_message(prompt_to_send, stream=True)
-                for chunk in stream:
-                    # 응답 유효성 검사
-                    if not getattr(chunk, "parts", None) or not getattr(chunk, "text", None):
-                        if not full_response:
-                            full_response = "[시스템 경고: 응답 생성 실패 또는 안전 필터에 의해 차단됨.]"
-                            placeholder.error(full_response)
-                            break
-                    full_response += chunk.text
-                    placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+            stream = chat_session.send_message(prompt_to_send, stream=True)
+            chunk_count = 0
+            
+            for chunk in stream:
+                chunk_count += 1
+                
+                # 청크 유효성 검사
+                if not hasattr(chunk, 'text'):
+                    continue
+                
+                chunk_text = chunk.text if chunk.text else ""
+                if not chunk_text:
+                    continue
+                
+                full_response += chunk_text
+                
+                # 스트리밍 표시 - 매 10개 청크마다 또는 100자마다 업데이트
+                if chunk_count % 10 == 0 or len(full_response) % 100 < len(chunk_text):
+                    try:
+                        placeholder.markdown(full_response, unsafe_allow_html=True)
+                    except Exception:
+                        pass  # DOM 오류 무시하고 계속 진행
+            
+            # 최종 출력
+            if full_response:
                 placeholder.markdown(full_response, unsafe_allow_html=True)
+            else:
+                full_response = "[시스템 경고: 응답이 생성되지 않았습니다.]"
+                placeholder.warning(full_response)
+            
         except Exception as e:
             full_response = f"[치명적 오류: {e}]"
             placeholder.error(full_response)
@@ -225,7 +243,7 @@ def stream_and_store_response(chat_session, prompt_to_send: str,
     update_active_module(full_response)
 
     end_time = time.time()
-    print(f"[LLM] 응답 시간: {end_time - start_time:.2f}s")
+    print(f"[LLM] 응답 시간: {end_time - start_time:.2f}s | 청크: {chunk_count}")
     return full_response
 
 
